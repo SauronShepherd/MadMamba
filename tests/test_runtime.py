@@ -61,6 +61,26 @@ class InterpreterRuntimeRegistryTests(unittest.TestCase):
         self.assertEqual(1, len({id(kernel) for kernel in kernels}))
         self.assertEqual((303,), registry.registered_interpreters())
 
+    def test_unregister_is_idempotent_and_exposes_coverage_gap(self) -> None:
+        registry = InterpreterRuntimeRegistry()
+        kernel = registry.bootstrap(404)
+
+        self.assertIs(kernel, registry.unregister(404, expected_kernel=kernel))
+        self.assertIsNone(registry.unregister(404, expected_kernel=kernel))
+        self.assertIsNone(registry.get(404))
+        with self.assertRaises(CoverageGapError):
+            registry.require(404)
+
+    def test_stale_teardown_cannot_remove_replacement_kernel(self) -> None:
+        registry = InterpreterRuntimeRegistry()
+        old_kernel = registry.bootstrap(505)
+        self.assertIs(old_kernel, registry.unregister(505, expected_kernel=old_kernel))
+
+        replacement = registry.bootstrap(505)
+        self.assertIsNot(old_kernel, replacement)
+        self.assertIsNone(registry.unregister(505, expected_kernel=old_kernel))
+        self.assertIs(replacement, registry.require(505))
+
 
 if __name__ == "__main__":
     unittest.main()
