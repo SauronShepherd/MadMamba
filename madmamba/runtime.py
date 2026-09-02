@@ -63,6 +63,29 @@ class InterpreterRuntimeRegistry:
             raise CoverageGapError(f"interpreter {key} has not been bootstrapped")
         return kernel
 
+    def unregister(
+        self,
+        interpreter_key: int | None = None,
+        *,
+        expected_kernel: RuntimeKernel | None = None,
+    ) -> RuntimeKernel | None:
+        """Remove one interpreter kernel without deleting a replacement owner.
+
+        ``expected_kernel`` acts as a compare-and-remove guard for teardown paths.
+        A stale cleanup callback therefore cannot unregister a newer kernel that
+        reused the same interpreter key after the old owner was removed.
+        """
+
+        key = current_interpreter_key() if interpreter_key is None else interpreter_key
+        with self._lock:
+            kernel = self._kernels.get(key)
+            if kernel is None:
+                return None
+            if expected_kernel is not None and kernel is not expected_kernel:
+                return None
+            del self._kernels[key]
+            return kernel
+
     def registered_interpreters(self) -> tuple[int, ...]:
         """Return a stable snapshot of explicitly bootstrapped interpreter keys."""
 
