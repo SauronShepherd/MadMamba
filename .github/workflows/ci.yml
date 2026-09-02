@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  r0-gates:
+    name: R0 gates (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python: "3.12"
+          - os: ubuntu-latest
+            python: "3.13"
+          - os: ubuntu-latest
+            python: "3.14"
+          - os: ubuntu-latest
+            python: "3.13t"
+          - os: ubuntu-latest
+            python: "3.14t"
+          - os: ubuntu-latest
+            python: "3.15-dev"
+          - os: macos-latest
+            python: "3.12"
+          - os: macos-latest
+            python: "3.13"
+          - os: macos-latest
+            python: "3.14"
+          - os: windows-latest
+            python: "3.12"
+          - os: windows-latest
+            python: "3.13"
+          - os: windows-latest
+            python: "3.14"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Report interpreter
+        run: python --version
+
+      - name: Validate traceability
+        run: python tools/validate_traceability.py
+
+      - name: Lint architecture decisions
+        run: python tools/lint_adrs.py
+
+      - name: Run cumulative unit and adversarial tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Compile Python sources
+        run: python -m compileall -q tools tests
+
+      - name: Parse traceability JSON documents
+        run: >-
+          python -c "import json, pathlib;
+          [json.loads(pathlib.Path(p).read_text(encoding='utf-8'))
+          for p in ('requirements/traceability.json',
+          'requirements/traceability.schema.json')]"
