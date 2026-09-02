@@ -31,6 +31,12 @@ def _require_nonempty_string(value: Any, label: str) -> str:
     return value
 
 
+def _require_unique(values: list[Any], label: str) -> None:
+    normalized = [str(value) for value in values]
+    if len(normalized) != len(set(normalized)):
+        raise TraceabilityError(f"{label} must not contain duplicate entries")
+
+
 def _validate_reference(repo_root: Path, ref: Any, label: str) -> None:
     ref = _require_nonempty_string(ref, label)
     if ref.startswith(REF_PREFIXES):
@@ -82,6 +88,7 @@ def validate_catalogue(data: Any, repo_root: Path) -> None:
             refs = requirement[field]
             if not isinstance(refs, list) or not refs:
                 raise TraceabilityError(f"{label}.{field} must be a non-empty list")
+            _require_unique(refs, f"{label}.{field}")
             for ref_index, ref in enumerate(refs):
                 _validate_reference(repo_root, ref, f"{label}.{field}[{ref_index}]")
 
@@ -105,6 +112,7 @@ def validate_catalogue(data: Any, repo_root: Path) -> None:
         mapped = task["requirements"]
         if not isinstance(mapped, list) or not mapped:
             raise TraceabilityError(f"{label}.requirements must be a non-empty list")
+        _require_unique(mapped, f"{label}.requirements")
         missing = [req_id for req_id in mapped if req_id not in requirement_ids]
         if missing:
             raise TraceabilityError(f"{task_id} references unknown requirements: {', '.join(missing)}")
