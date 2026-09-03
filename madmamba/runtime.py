@@ -10,6 +10,10 @@ class CoverageGapError(LookupError):
     """Raised when the current interpreter has not been bootstrapped."""
 
 
+class RuntimeAlreadyBootstrappedError(RuntimeError):
+    """Raised when exclusive lifecycle ownership is requested twice."""
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeKernel:
     """Identity and ownership root for one instrumented interpreter."""
@@ -45,6 +49,24 @@ class InterpreterRuntimeRegistry:
             if kernel is None:
                 kernel = RuntimeKernel(process_id=os.getpid(), interpreter_key=key)
                 self._kernels[key] = kernel
+            return kernel
+
+    def claim(self, interpreter_key: int | None = None) -> RuntimeKernel:
+        """Atomically create one exclusively owned interpreter generation.
+
+        Managed lifecycle scopes use this instead of idempotent ``bootstrap`` so a
+        nested or racing owner cannot accidentally inherit and later tear down a
+        kernel that belongs to another scope.
+        """
+
+        key = current_interpreter_key() if interpreter_key is None else interpreter_key
+        with self._lock:
+            if key in self._kernels:
+                raise RuntimeAlreadyBootstrappedError(
+                    f"interpreter {key} already has a live runtime kernel"
+                )
+            kernel = RuntimeKernel(process_id=os.getpid(), interpreter_key=key)
+            self._kernels[key] = kernel
             return kernel
 
     def get(self, interpreter_key: int | None = None) -> RuntimeKernel | None:
