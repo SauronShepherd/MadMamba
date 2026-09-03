@@ -8,6 +8,11 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 from typing import Sequence
 
+from .lifecycle import InterpreterRuntimeLifecycle, RuntimeLifecycleStatus
+
+
+_runtime_lifecycle = InterpreterRuntimeLifecycle()
+
 
 def package_version() -> str:
     """Return the installed package version without importing packaging helpers."""
@@ -18,16 +23,29 @@ def package_version() -> str:
         return "0.1.0.dev0"
 
 
-def doctor_payload() -> dict[str, object]:
-    """Return bounded, non-secret runtime capability diagnostics."""
+def _lifecycle_payload(status: RuntimeLifecycleStatus) -> dict[str, object]:
+    return {
+        "interpreterKey": status.interpreter_key,
+        "kernelLive": status.kernel_live,
+        "monitoringAttached": status.monitoring_attached,
+        "monitoringDegraded": status.monitoring_degraded,
+        "monitoringEvents": status.monitoring_events,
+        "monitoringToolId": status.monitoring_tool_id,
+    }
+
+
+def doctor_payload(lifecycle: InterpreterRuntimeLifecycle | None = None) -> dict[str, object]:
+    """Return bounded, non-secret runtime capability and lifecycle diagnostics."""
 
     monitoring = getattr(sys, "monitoring", None)
+    owner = _runtime_lifecycle if lifecycle is None else lifecycle
     return {
         "madmambaVersion": package_version(),
         "pythonVersion": platform.python_version(),
         "implementation": platform.python_implementation(),
         "sysMonitoringAvailable": monitoring is not None,
         "freeThreaded": bool(getattr(sys.flags, "gil", 1) == 0),
+        "runtimeLifecycle": _lifecycle_payload(owner.status()),
     }
 
 
@@ -70,10 +88,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.as_json:
             print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
         else:
+            lifecycle = payload["runtimeLifecycle"]
+            assert isinstance(lifecycle, dict)
             print(f"MadMamba {payload['madmambaVersion']}")
             print(f"Python {payload['pythonVersion']} ({payload['implementation']})")
             print(f"sys.monitoring: {'available' if payload['sysMonitoringAvailable'] else 'unavailable'}")
             print(f"free-threaded: {'yes' if payload['freeThreaded'] else 'no'}")
+            print(f"runtime kernel: {'live' if lifecycle['kernelLive'] else 'inactive'}")
+            if lifecycle["kernelLive"]:
+                monitoring_state = "attached" if lifecycle["monitoringAttached"] else "not attached"
+                if lifecycle["monitoringDegraded"]:
+                    monitoring_state += " (degraded)"
+                print(f"runtime monitoring: {monitoring_state}")
         return 0
     if args.command == "run":
         try:
