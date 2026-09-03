@@ -73,6 +73,41 @@ class InterpreterMonitoringSessionsTests(unittest.TestCase):
         self.assertIs(current, sessions.get(owner))
         current.close.assert_not_called()
 
+    def test_teardown_closes_session_and_unregisters_kernel(self) -> None:
+        runtimes = InterpreterRuntimeRegistry()
+        owner = runtimes.bootstrap(606)
+        sessions = InterpreterMonitoringSessions(runtimes)
+        monitoring = Mock(spec=MonitoringSession)
+        sessions.attach(owner, monitoring)
+
+        self.assertTrue(sessions.teardown(owner))
+        self.assertIsNone(runtimes.get(606))
+        self.assertIsNone(sessions.get(owner))
+        monitoring.close.assert_called_once_with()
+
+    def test_teardown_without_session_still_unregisters_kernel(self) -> None:
+        runtimes = InterpreterRuntimeRegistry()
+        owner = runtimes.bootstrap(707)
+        sessions = InterpreterMonitoringSessions(runtimes)
+
+        self.assertTrue(sessions.teardown(owner))
+        self.assertIsNone(runtimes.get(707))
+        self.assertEqual((), sessions.attached_interpreters())
+
+    def test_stale_teardown_never_removes_replacement_owner(self) -> None:
+        runtimes = InterpreterRuntimeRegistry()
+        stale = runtimes.bootstrap(808)
+        sessions = InterpreterMonitoringSessions(runtimes)
+        runtimes.unregister(808, expected_kernel=stale)
+        replacement = runtimes.bootstrap(808)
+        replacement_session = Mock(spec=MonitoringSession)
+        sessions.attach(replacement, replacement_session)
+
+        self.assertFalse(sessions.teardown(stale))
+        self.assertIs(replacement, runtimes.get(808))
+        self.assertIs(replacement_session, sessions.get(replacement))
+        replacement_session.close.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

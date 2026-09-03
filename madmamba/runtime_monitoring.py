@@ -61,6 +61,35 @@ class InterpreterMonitoringSessions:
         session.close()
         return True
 
+    def teardown(self, kernel: RuntimeKernel) -> bool:
+        """Close monitoring and unregister one exact interpreter generation.
+
+        Session ownership is removed before the runtime kernel so a concurrent attach
+        can never observe an unregistered kernel with an orphaned session. The
+        compare-and-remove guard on the runtime registry prevents stale teardown from
+        removing a replacement kernel that reused the same interpreter key.
+        """
+
+        with self._lock:
+            if self._runtimes.get(kernel.interpreter_key) is not kernel:
+                return False
+            current = self._sessions.get(kernel.interpreter_key)
+            session = None
+            if current is not None and current[0] is kernel:
+                session = current[1]
+                del self._sessions[kernel.interpreter_key]
+            removed = self._runtimes.unregister(
+                kernel.interpreter_key,
+                expected_kernel=kernel,
+            )
+            if removed is not kernel:
+                if session is not None:
+                    self._sessions[kernel.interpreter_key] = (kernel, session)
+                return False
+        if session is not None:
+            session.close()
+        return True
+
     def attached_interpreters(self) -> tuple[int, ...]:
         """Return a stable snapshot of interpreter keys with active session ownership."""
 
