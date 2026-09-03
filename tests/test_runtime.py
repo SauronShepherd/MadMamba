@@ -3,7 +3,12 @@ from __future__ import annotations
 import threading
 import unittest
 
-from madmamba.runtime import CoverageGapError, InterpreterRuntimeRegistry, current_interpreter_key
+from madmamba.runtime import (
+    CoverageGapError,
+    InterpreterRuntimeRegistry,
+    RuntimeAlreadyBootstrappedError,
+    current_interpreter_key,
+)
 
 
 class InterpreterRuntimeRegistryTests(unittest.TestCase):
@@ -60,6 +65,34 @@ class InterpreterRuntimeRegistryTests(unittest.TestCase):
         self.assertEqual(16, len(kernels))
         self.assertEqual(1, len({id(kernel) for kernel in kernels}))
         self.assertEqual((303,), registry.registered_interpreters())
+
+    def test_concurrent_claim_has_exactly_one_exclusive_owner(self) -> None:
+        registry = InterpreterRuntimeRegistry()
+        barrier = threading.Barrier(16)
+        claimed = []
+        rejected = []
+        result_lock = threading.Lock()
+
+        def claim() -> None:
+            try:
+                barrier.wait()
+                kernel = registry.claim(304)
+                with result_lock:
+                    claimed.append(kernel)
+            except RuntimeAlreadyBootstrappedError as exc:
+                with result_lock:
+                    rejected.append(exc)
+
+        threads = [threading.Thread(target=claim) for _ in range(16)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        self.assertEqual(1, len(claimed))
+        self.assertEqual(15, len(rejected))
+        self.assertIs(claimed[0], registry.require(304))
+        self.assertEqual((304,), registry.registered_interpreters())
 
     def test_unregister_is_idempotent_and_exposes_coverage_gap(self) -> None:
         registry = InterpreterRuntimeRegistry()
