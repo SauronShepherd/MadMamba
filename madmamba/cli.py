@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import platform
+import subprocess
 import sys
 from importlib.metadata import PackageNotFoundError, version
 from typing import Sequence
@@ -39,7 +40,23 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command")
     doctor = subcommands.add_parser("doctor", help="Report local runtime capabilities.")
     doctor.add_argument("--json", action="store_true", dest="as_json", help="Emit machine-readable JSON.")
+    run = subcommands.add_parser("run", help="Run an application without changing its arguments or stdio.")
+    run.add_argument("application", nargs=argparse.REMAINDER, help="Application command, optionally after --.")
     return parser
+
+
+def run_application(application: Sequence[str]) -> int:
+    """Run a child application with inherited stdio and return its exit status."""
+
+    command = list(application)
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        raise ValueError("run requires an application command")
+    try:
+        return subprocess.run(command, check=False).returncode
+    except FileNotFoundError:
+        return 127
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -58,6 +75,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"sys.monitoring: {'available' if payload['sysMonitoringAvailable'] else 'unavailable'}")
             print(f"free-threaded: {'yes' if payload['freeThreaded'] else 'no'}")
         return 0
+    if args.command == "run":
+        try:
+            return run_application(args.application)
+        except ValueError as exc:
+            parser.error(str(exc))
     parser.error(f"unsupported command: {args.command}")
     return 2
 
