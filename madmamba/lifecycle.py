@@ -42,12 +42,12 @@ class InterpreterRuntimeLifecycle:
         *,
         monitoring_session: MonitoringSession | None = None,
     ) -> Iterator[RuntimeKernel]:
-        """Own one runtime generation for a bounded bootstrap/use/teardown scope."""
+        """Own one exclusive runtime generation for a bounded lifecycle scope."""
 
-        kernel = self.bootstrap(interpreter_key)
-        if monitoring_session is not None:
-            self.attach_monitoring(kernel, monitoring_session)
+        kernel = self.runtimes.claim(interpreter_key)
         try:
+            if monitoring_session is not None:
+                self.attach_monitoring(kernel, monitoring_session)
             yield kernel
         finally:
             self.close(kernel)
