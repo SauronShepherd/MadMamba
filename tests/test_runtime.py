@@ -3,7 +3,12 @@ from __future__ import annotations
 import threading
 import unittest
 
-from madmamba.runtime import CoverageGapError, InterpreterRuntimeRegistry, current_interpreter_key
+from madmamba.runtime import (
+    CoverageGapError,
+    InterpreterRuntimeRegistry,
+    RuntimeAlreadyBootstrappedError,
+    current_interpreter_key,
+)
 
 
 class InterpreterRuntimeRegistryTests(unittest.TestCase):
@@ -11,14 +16,12 @@ class InterpreterRuntimeRegistryTests(unittest.TestCase):
         registry = InterpreterRuntimeRegistry()
         first = registry.bootstrap()
         second = registry.bootstrap()
-
         self.assertIs(first, second)
         self.assertEqual(current_interpreter_key(), first.interpreter_key)
         self.assertEqual((first.interpreter_key,), registry.registered_interpreters())
 
     def test_unbootstrapped_interpreter_is_reported_as_coverage_gap(self) -> None:
         registry = InterpreterRuntimeRegistry()
-
         self.assertIsNone(registry.get(987654321))
         with self.assertRaisesRegex(CoverageGapError, "has not been bootstrapped"):
             registry.require(987654321)
@@ -27,7 +30,6 @@ class InterpreterRuntimeRegistryTests(unittest.TestCase):
         registry = InterpreterRuntimeRegistry()
         first = registry.bootstrap(101)
         second = registry.bootstrap(202)
-
         self.assertIs(first, registry.require(101))
         self.assertIs(second, registry.require(202))
         self.assertIsNot(first, second)
@@ -55,16 +57,40 @@ class InterpreterRuntimeRegistryTests(unittest.TestCase):
             thread.start()
         for thread in threads:
             thread.join(timeout=5)
-
         self.assertFalse(failures)
         self.assertEqual(16, len(kernels))
         self.assertEqual(1, len({id(kernel) for kernel in kernels}))
         self.assertEqual((303,), registry.registered_interpreters())
 
+    def test_concurrent_claim_has_exactly_one_exclusive_owner(self) -> None:
+        registry = InterpreterRuntimeRegistry()
+        barrier = threading.Barrier(16)
+        claimed = []
+        rejected = []
+        result_lock = threading.Lock()
+
+        def claim() -> None:
+            try:
+                barrier.wait()
+                kernel = registry.claim(304)
+                with result_lock:
+                    claimed.append(kernel)
+            except RuntimeAlreadyBootstrappedError as exc:
+                with result_lock:
+                    rejected.append(exc)
+
+        threads = [threading.Thread(target=claim) for _ in range(16)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=5)
+        self.assertEqual(1, len(claimed))
+        self.assertEqual(15, len(rejected))
+        self.assertIs(claimed[0], registry.require(304))
+
     def test_unregister_is_idempotent_and_exposes_coverage_gap(self) -> None:
         registry = InterpreterRuntimeRegistry()
         kernel = registry.bootstrap(404)
-
         self.assertIs(kernel, registry.unregister(404, expected_kernel=kernel))
         self.assertIsNone(registry.unregister(404, expected_kernel=kernel))
         self.assertIsNone(registry.get(404))
@@ -75,7 +101,6 @@ class InterpreterRuntimeRegistryTests(unittest.TestCase):
         registry = InterpreterRuntimeRegistry()
         old_kernel = registry.bootstrap(505)
         self.assertIs(old_kernel, registry.unregister(505, expected_kernel=old_kernel))
-
         replacement = registry.bootstrap(505)
         self.assertIsNot(old_kernel, replacement)
         self.assertIsNone(registry.unregister(505, expected_kernel=old_kernel))
