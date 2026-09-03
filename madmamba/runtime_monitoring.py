@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import dataclass
 
 from .monitoring import MonitoringSession
 from .runtime import CoverageGapError, InterpreterRuntimeRegistry, RuntimeKernel
@@ -8,6 +9,25 @@ from .runtime import CoverageGapError, InterpreterRuntimeRegistry, RuntimeKernel
 
 class MonitoringAlreadyAttachedError(RuntimeError):
     """Raised when an interpreter kernel already owns a monitoring session."""
+
+
+@dataclass(frozen=True, slots=True)
+class MonitoringRuntimeStatus:
+    """Observable monitoring state for one exact interpreter kernel generation."""
+
+    interpreter_key: int
+    kernel_live: bool
+    attached: bool
+    tool_id: int | None = None
+    events: int = 0
+    callback_events: tuple[int, ...] = ()
+    owns_tool_slot: bool = False
+
+    @property
+    def degraded(self) -> bool:
+        """Return whether the kernel is live without an active owned monitoring session."""
+
+        return self.kernel_live and (not self.attached or not self.owns_tool_slot)
 
 
 class InterpreterMonitoringSessions:
@@ -41,6 +61,30 @@ class InterpreterMonitoringSessions:
             if current is None or current[0] is not kernel:
                 return None
             return current[1]
+
+    def status(self, kernel: RuntimeKernel) -> MonitoringRuntimeStatus:
+        """Return diagnostics for this exact kernel generation without fallback.
+
+        A stale kernel is reported as not live even if a replacement kernel with the
+        same interpreter key owns a session. This keeps observability aligned with
+        the compare-by-identity lifecycle semantics used by attach/detach.
+        """
+
+        with self._lock:
+            kernel_live = self._runtimes.get(kernel.interpreter_key) is kernel
+            current = self._sessions.get(kernel.interpreter_key)
+            if current is None or current[0] is not kernel:
+                return MonitoringRuntimeStatus(kernel.interpreter_key, kernel_live, False)
+            session = current[1]
+            return MonitoringRuntimeStatus(
+                interpreter_key=kernel.interpreter_key,
+                kernel_live=kernel_live,
+                attached=True,
+                tool_id=session.lease.tool_id,
+                events=session.events,
+                callback_events=session.callback_events,
+                owns_tool_slot=session.lease.owns_slot(),
+            )
 
     def detach(
         self,
