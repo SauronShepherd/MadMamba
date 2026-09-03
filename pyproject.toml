@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "madmamba"
+version = "0.1.0.dev0"
+description = "Local-first, privacy-preserving diagnostics for Python and PySpark"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "MadMamba contributors" }]
+dependencies = []
+
+[project.scripts]
+madmamba = "madmamba.cli:main"
+
+[tool.setuptools]
+packages = ["madmamba"]
