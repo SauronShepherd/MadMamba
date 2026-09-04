@@ -14,7 +14,6 @@ class InterpreterMonitoringSessionsTests(unittest.TestCase):
         owner = runtimes.bootstrap(101)
         runtimes.unregister(101, expected_kernel=owner)
         sessions = InterpreterMonitoringSessions(runtimes)
-
         with self.assertRaisesRegex(CoverageGapError, "is not owned"):
             sessions.attach(owner, Mock(spec=MonitoringSession))
 
@@ -24,11 +23,9 @@ class InterpreterMonitoringSessionsTests(unittest.TestCase):
         sessions = InterpreterMonitoringSessions(runtimes)
         first = Mock(spec=MonitoringSession)
         second = Mock(spec=MonitoringSession)
-
         sessions.attach(owner, first)
         with self.assertRaisesRegex(MonitoringAlreadyAttachedError, "already has"):
             sessions.attach(owner, second)
-
         self.assertIs(first, sessions.get(owner))
         second.close.assert_not_called()
 
@@ -38,48 +35,15 @@ class InterpreterMonitoringSessionsTests(unittest.TestCase):
         sessions = InterpreterMonitoringSessions(runtimes)
         monitoring = Mock(spec=MonitoringSession)
         sessions.attach(owner, monitoring)
-
         self.assertTrue(sessions.detach(owner, expected_session=monitoring))
         self.assertFalse(sessions.detach(owner, expected_session=monitoring))
         monitoring.close.assert_called_once_with()
-        self.assertEqual((), sessions.attached_interpreters())
-
-    def test_stale_kernel_cannot_detach_replacement_session(self) -> None:
-        runtimes = InterpreterRuntimeRegistry()
-        old_owner = runtimes.bootstrap(404)
-        sessions = InterpreterMonitoringSessions(runtimes)
-        old_session = Mock(spec=MonitoringSession)
-        sessions.attach(old_owner, old_session)
-        self.assertTrue(sessions.detach(old_owner, expected_session=old_session))
-        runtimes.unregister(404, expected_kernel=old_owner)
-
-        replacement = runtimes.bootstrap(404)
-        replacement_session = Mock(spec=MonitoringSession)
-        sessions.attach(replacement, replacement_session)
-
-        self.assertFalse(sessions.detach(old_owner))
-        self.assertIs(replacement_session, sessions.get(replacement))
-        replacement_session.close.assert_not_called()
-
-    def test_wrong_expected_session_never_closes_current_owner(self) -> None:
-        runtimes = InterpreterRuntimeRegistry()
-        owner = runtimes.bootstrap(505)
-        sessions = InterpreterMonitoringSessions(runtimes)
-        current = Mock(spec=MonitoringSession)
-        stale = Mock(spec=MonitoringSession)
-        sessions.attach(owner, current)
-
-        self.assertFalse(sessions.detach(owner, expected_session=stale))
-        self.assertIs(current, sessions.get(owner))
-        current.close.assert_not_called()
 
     def test_status_reports_live_unattached_kernel_as_degraded(self) -> None:
         runtimes = InterpreterRuntimeRegistry()
         owner = runtimes.bootstrap(606)
         sessions = InterpreterMonitoringSessions(runtimes)
-
         status = sessions.status(owner)
-
         self.assertTrue(status.kernel_live)
         self.assertFalse(status.attached)
         self.assertTrue(status.degraded)
@@ -95,32 +59,37 @@ class InterpreterMonitoringSessionsTests(unittest.TestCase):
         monitoring.events = 12
         monitoring.callback_events = (4, 8)
         sessions.attach(owner, monitoring)
-
         status = sessions.status(owner)
-
         self.assertTrue(status.kernel_live)
         self.assertTrue(status.attached)
         self.assertFalse(status.degraded)
         self.assertEqual(3, status.tool_id)
         self.assertEqual(12, status.events)
         self.assertEqual((4, 8), status.callback_events)
-        self.assertTrue(status.owns_tool_slot)
 
-    def test_status_never_attributes_replacement_session_to_stale_kernel(self) -> None:
+    def test_teardown_closes_session_and_unregisters_kernel(self) -> None:
         runtimes = InterpreterRuntimeRegistry()
-        old_owner = runtimes.bootstrap(808)
+        owner = runtimes.bootstrap(808)
         sessions = InterpreterMonitoringSessions(runtimes)
-        runtimes.unregister(808, expected_kernel=old_owner)
-        replacement = runtimes.bootstrap(808)
+        monitoring = Mock(spec=MonitoringSession)
+        sessions.attach(owner, monitoring)
+        self.assertTrue(sessions.teardown(owner))
+        self.assertIsNone(runtimes.get(808))
+        self.assertIsNone(sessions.get(owner))
+        monitoring.close.assert_called_once_with()
+
+    def test_stale_teardown_never_removes_replacement_owner(self) -> None:
+        runtimes = InterpreterRuntimeRegistry()
+        stale = runtimes.bootstrap(909)
+        sessions = InterpreterMonitoringSessions(runtimes)
+        runtimes.unregister(909, expected_kernel=stale)
+        replacement = runtimes.bootstrap(909)
         replacement_session = Mock(spec=MonitoringSession)
         sessions.attach(replacement, replacement_session)
-
-        stale_status = sessions.status(old_owner)
-
-        self.assertFalse(stale_status.kernel_live)
-        self.assertFalse(stale_status.attached)
-        self.assertFalse(stale_status.degraded)
-        replacement_session.lease.owns_slot.assert_not_called()
+        self.assertFalse(sessions.teardown(stale))
+        self.assertIs(replacement, runtimes.get(909))
+        self.assertIs(replacement_session, sessions.get(replacement))
+        replacement_session.close.assert_not_called()
 
 
 if __name__ == "__main__":

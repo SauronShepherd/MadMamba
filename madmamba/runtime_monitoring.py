@@ -63,12 +63,7 @@ class InterpreterMonitoringSessions:
             return current[1]
 
     def status(self, kernel: RuntimeKernel) -> MonitoringRuntimeStatus:
-        """Return diagnostics for this exact kernel generation without fallback.
-
-        A stale kernel is reported as not live even if a replacement kernel with the
-        same interpreter key owns a session. This keeps observability aligned with
-        the compare-by-identity lifecycle semantics used by attach/detach.
-        """
+        """Return diagnostics for this exact kernel generation without fallback."""
 
         with self._lock:
             kernel_live = self._runtimes.get(kernel.interpreter_key) is kernel
@@ -103,6 +98,29 @@ class InterpreterMonitoringSessions:
             session = current[1]
             del self._sessions[kernel.interpreter_key]
         session.close()
+        return True
+
+    def teardown(self, kernel: RuntimeKernel) -> bool:
+        """Close monitoring and unregister one exact interpreter generation."""
+
+        with self._lock:
+            if self._runtimes.get(kernel.interpreter_key) is not kernel:
+                return False
+            current = self._sessions.get(kernel.interpreter_key)
+            session = None
+            if current is not None and current[0] is kernel:
+                session = current[1]
+                del self._sessions[kernel.interpreter_key]
+            removed = self._runtimes.unregister(
+                kernel.interpreter_key,
+                expected_kernel=kernel,
+            )
+            if removed is not kernel:
+                if session is not None:
+                    self._sessions[kernel.interpreter_key] = (kernel, session)
+                return False
+        if session is not None:
+            session.close()
         return True
 
     def attached_interpreters(self) -> tuple[int, ...]:
