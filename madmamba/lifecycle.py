@@ -75,3 +75,22 @@ class InterpreterRuntimeLifecycle:
             yield kernel
         finally:
             self.close(kernel)
+
+
+_application_lifecycle = InterpreterRuntimeLifecycle()
+
+
+def application_lifecycle() -> InterpreterRuntimeLifecycle:
+    """Return the interpreter-local application lifecycle owner without bootstrapping it."""
+
+    return _application_lifecycle
+
+
+@contextmanager
+def managed_application_runtime(
+    *, monitoring_session: MonitoringSession | None = None
+) -> Iterator[RuntimeKernel]:
+    """Own the shared in-process runtime used by diagnostics and instrumentation."""
+
+    with _application_lifecycle.managed(monitoring_session=monitoring_session) as kernel:
+        yield kernel
