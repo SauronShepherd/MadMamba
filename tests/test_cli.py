@@ -6,9 +6,10 @@ import subprocess
 import sys
 import unittest
 from contextlib import redirect_stdout
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from madmamba import cli
+from madmamba.lifecycle import RuntimeLifecycleStatus
 
 
 class CliTests(unittest.TestCase):
@@ -22,8 +23,21 @@ class CliTests(unittest.TestCase):
         self.assertIn("run", stream.getvalue())
 
     def test_doctor_json_is_bounded_machine_readable_capability_output(self) -> None:
+        lifecycle = Mock()
+        lifecycle.status.return_value = RuntimeLifecycleStatus(
+            interpreter_key=17,
+            kernel_live=True,
+            monitoring_attached=True,
+            monitoring_degraded=False,
+            monitoring_events=23,
+            monitoring_tool_id=4,
+        )
         stream = io.StringIO()
-        with patch.object(cli, "package_version", return_value="0.1.test"), redirect_stdout(stream):
+        with (
+            patch.object(cli, "package_version", return_value="0.1.test"),
+            patch.object(cli, "_runtime_lifecycle", lifecycle),
+            redirect_stdout(stream),
+        ):
             result = cli.main(["doctor", "--json"])
         self.assertEqual(0, result)
         payload = json.loads(stream.getvalue())
@@ -38,17 +52,73 @@ class CliTests(unittest.TestCase):
                 "implementation",
                 "madmambaVersion",
                 "pythonVersion",
+                "runtimeLifecycle",
                 "sysMonitoringAvailable",
             },
             set(payload),
         )
+        self.assertEqual(
+            {
+                "interpreterKey": 17,
+                "kernelLive": True,
+                "monitoringAttached": True,
+                "monitoringDegraded": False,
+                "monitoringEvents": 23,
+                "monitoringToolId": 4,
+            },
+            payload["runtimeLifecycle"],
+        )
+        lifecycle.status.assert_called_once_with()
+
+    def test_doctor_payload_reads_lifecycle_without_bootstrapping_it(self) -> None:
+        lifecycle = Mock()
+        lifecycle.status.return_value = RuntimeLifecycleStatus(
+            interpreter_key=29,
+            kernel_live=False,
+            monitoring_attached=False,
+            monitoring_degraded=False,
+        )
+
+        payload = cli.doctor_payload(lifecycle)
+
+        self.assertFalse(payload["runtimeLifecycle"]["kernelLive"])
+        lifecycle.status.assert_called_once_with()
+        lifecycle.bootstrap.assert_not_called()
+        lifecycle.attach_monitoring.assert_not_called()
 
     def test_doctor_text_never_requires_monitoring_backend(self) -> None:
+        lifecycle = Mock()
+        lifecycle.status.return_value = RuntimeLifecycleStatus(
+            interpreter_key=31,
+            kernel_live=False,
+            monitoring_attached=False,
+            monitoring_degraded=False,
+        )
         stream = io.StringIO()
-        with patch.object(cli.sys, "monitoring", None, create=True), redirect_stdout(stream):
+        with (
+            patch.object(cli.sys, "monitoring", None, create=True),
+            patch.object(cli, "_runtime_lifecycle", lifecycle),
+            redirect_stdout(stream),
+        ):
             result = cli.main(["doctor"])
         self.assertEqual(0, result)
         self.assertIn("sys.monitoring: unavailable", stream.getvalue())
+        self.assertIn("runtime kernel: inactive", stream.getvalue())
+
+    def test_doctor_text_surfaces_degraded_live_monitoring_state(self) -> None:
+        lifecycle = Mock()
+        lifecycle.status.return_value = RuntimeLifecycleStatus(
+            interpreter_key=37,
+            kernel_live=True,
+            monitoring_attached=False,
+            monitoring_degraded=True,
+        )
+        stream = io.StringIO()
+        with patch.object(cli, "_runtime_lifecycle", lifecycle), redirect_stdout(stream):
+            result = cli.main(["doctor"])
+        self.assertEqual(0, result)
+        self.assertIn("runtime kernel: live", stream.getvalue())
+        self.assertIn("runtime monitoring: not attached (degraded)", stream.getvalue())
 
     def test_version_uses_argparse_version_exit_contract(self) -> None:
         stream = io.StringIO()
