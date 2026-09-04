@@ -20,7 +20,7 @@ def test_doctor_observes_shared_managed_runtime() -> None:
         payload = doctor_payload()
         runtime = payload["runtimeLifecycle"]
 
-        assert kernel.live is True
+        assert lifecycle.runtimes.get() is kernel
         assert runtime["kernelLive"] is True
         assert runtime["monitoringAttached"] is False
         assert runtime["monitoringDegraded"] is True
