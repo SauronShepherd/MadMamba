@@ -42,6 +42,24 @@ class InterpreterRuntimeLifecycleTests(unittest.TestCase):
                 self.fail("scope should not open")
         self.assertIsNone(lifecycle.runtimes.get(904))
 
+    def test_status_does_not_bootstrap_missing_runtime(self) -> None:
+        lifecycle = InterpreterRuntimeLifecycle()
+        status = lifecycle.status(905)
+        self.assertFalse(status.kernel_live)
+        self.assertFalse(status.monitoring_attached)
+        self.assertFalse(status.monitoring_degraded)
+        self.assertEqual((), lifecycle.runtimes.registered_interpreters())
+
+    def test_status_reports_live_runtime_without_monitoring_as_degraded(self) -> None:
+        lifecycle = InterpreterRuntimeLifecycle()
+        lifecycle.bootstrap(906)
+        status = lifecycle.status(906)
+        self.assertTrue(status.kernel_live)
+        self.assertFalse(status.monitoring_attached)
+        self.assertTrue(status.monitoring_degraded)
+        self.assertEqual(0, status.monitoring_events)
+        self.assertIsNone(status.monitoring_tool_id)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -2,10 +2,23 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 
 from .monitoring import MonitoringSession
-from .runtime import InterpreterRuntimeRegistry, RuntimeKernel
+from .runtime import InterpreterRuntimeRegistry, RuntimeKernel, current_interpreter_key
 from .runtime_monitoring import InterpreterMonitoringSessions
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeLifecycleStatus:
+    """Stable diagnostics for one interpreter lifecycle slot."""
+
+    interpreter_key: int
+    kernel_live: bool
+    monitoring_attached: bool
+    monitoring_degraded: bool
+    monitoring_events: int = 0
+    monitoring_tool_id: int | None = None
 
 
 class InterpreterRuntimeLifecycle:
@@ -23,6 +36,28 @@ class InterpreterRuntimeLifecycle:
 
     def close(self, kernel: RuntimeKernel) -> bool:
         return self.monitoring.teardown(kernel)
+
+    def status(self, interpreter_key: int | None = None) -> RuntimeLifecycleStatus:
+        """Return bounded lifecycle diagnostics without creating runtime state."""
+
+        key = current_interpreter_key() if interpreter_key is None else interpreter_key
+        kernel = self.runtimes.get(key)
+        if kernel is None:
+            return RuntimeLifecycleStatus(
+                interpreter_key=key,
+                kernel_live=False,
+                monitoring_attached=False,
+                monitoring_degraded=False,
+            )
+        monitoring = self.monitoring.status(kernel)
+        return RuntimeLifecycleStatus(
+            interpreter_key=key,
+            kernel_live=monitoring.kernel_live,
+            monitoring_attached=monitoring.attached,
+            monitoring_degraded=monitoring.degraded,
+            monitoring_events=monitoring.events,
+            monitoring_tool_id=monitoring.tool_id,
+        )
 
     @contextmanager
     def managed(
