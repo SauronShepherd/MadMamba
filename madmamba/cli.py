@@ -8,10 +8,7 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 from typing import Sequence
 
-from .lifecycle import InterpreterRuntimeLifecycle, RuntimeLifecycleStatus
-
-
-_runtime_lifecycle = InterpreterRuntimeLifecycle()
+from .lifecycle import InterpreterRuntimeLifecycle, RuntimeLifecycleStatus, application_lifecycle
 
 
 def package_version() -> str:
@@ -38,7 +35,7 @@ def doctor_payload(lifecycle: InterpreterRuntimeLifecycle | None = None) -> dict
     """Return bounded, non-secret runtime capability and lifecycle diagnostics."""
 
     monitoring = getattr(sys, "monitoring", None)
-    owner = _runtime_lifecycle if lifecycle is None else lifecycle
+    owner = application_lifecycle() if lifecycle is None else lifecycle
     return {
         "madmambaVersion": package_version(),
         "pythonVersion": platform.python_version(),
