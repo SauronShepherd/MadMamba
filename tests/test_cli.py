@@ -35,7 +35,7 @@ class CliTests(unittest.TestCase):
         stream = io.StringIO()
         with (
             patch.object(cli, "package_version", return_value="0.1.test"),
-            patch.object(cli, "_runtime_lifecycle", lifecycle),
+            patch.object(cli, "application_lifecycle", return_value=lifecycle),
             redirect_stdout(stream),
         ):
             result = cli.main(["doctor", "--json"])
@@ -97,7 +97,7 @@ class CliTests(unittest.TestCase):
         stream = io.StringIO()
         with (
             patch.object(cli.sys, "monitoring", None, create=True),
-            patch.object(cli, "_runtime_lifecycle", lifecycle),
+            patch.object(cli, "application_lifecycle", return_value=lifecycle),
             redirect_stdout(stream),
         ):
             result = cli.main(["doctor"])
@@ -114,7 +114,7 @@ class CliTests(unittest.TestCase):
             monitoring_degraded=True,
         )
         stream = io.StringIO()
-        with patch.object(cli, "_runtime_lifecycle", lifecycle), redirect_stdout(stream):
+        with patch.object(cli, "application_lifecycle", return_value=lifecycle), redirect_stdout(stream):
             result = cli.main(["doctor"])
         self.assertEqual(0, result)
         self.assertIn("runtime kernel: live", stream.getvalue())
