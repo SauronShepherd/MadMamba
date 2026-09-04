@@ -57,6 +57,11 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--json", action="store_true", dest="as_json", help="Emit machine-readable JSON.")
     run = subcommands.add_parser("run", help="Run an application without changing its arguments or stdio.")
     run.add_argument("application", nargs=argparse.REMAINDER, help="Application command, optionally after --.")
+    run_python = subcommands.add_parser(
+        "run-python",
+        help="Run a Python script inside MadMamba's target-interpreter runtime lifecycle.",
+    )
+    run_python.add_argument("application", nargs=argparse.REMAINDER, help="Python script and arguments, optionally after --.")
     return parser
 
 
@@ -72,6 +77,20 @@ def run_application(application: Sequence[str]) -> int:
         return subprocess.run(command, check=False).returncode
     except FileNotFoundError:
         return 127
+
+
+def run_python_application(application: Sequence[str]) -> int:
+    """Launch the conservative Python target bootstrap in the child interpreter."""
+
+    command = list(application)
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        raise ValueError("run-python requires a Python script")
+    return subprocess.run(
+        [sys.executable, "-m", "madmamba.bootstrap", "--", *command],
+        check=False,
+    ).returncode
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -101,6 +120,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "run":
         try:
             return run_application(args.application)
+        except ValueError as exc:
+            parser.error(str(exc))
+    if args.command == "run-python":
+        try:
+            return run_python_application(args.application)
         except ValueError as exc:
             parser.error(str(exc))
     parser.error(f"unsupported command: {args.command}")
