@@ -1,6 +1,10 @@
 """MadMamba runtime package."""
 
-from .lifecycle import InterpreterRuntimeLifecycle
+from .lifecycle import (
+    InterpreterRuntimeLifecycle,
+    application_lifecycle,
+    managed_application_runtime,
+)
 from .runtime import (
     CoverageGapError,
     InterpreterRuntimeRegistry,
@@ -15,5 +19,7 @@ __all__ = [
     "InterpreterRuntimeRegistry",
     "RuntimeAlreadyBootstrappedError",
     "RuntimeKernel",
+    "application_lifecycle",
     "current_interpreter_key",
+    "managed_application_runtime",
 ]
