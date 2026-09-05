@@ -34,6 +34,35 @@ class BootstrapTests(unittest.TestCase):
         self.assertTrue(payload["live"])
         self.assertFalse(lifecycle.status().kernel_live)
 
+    def test_run_python_module_preserves_argv_and_lifecycle(self) -> None:
+        lifecycle = application_lifecycle()
+        self.assertFalse(lifecycle.status().kernel_live)
+        with tempfile.TemporaryDirectory() as directory:
+            module = Path(directory) / "madmamba_target_module.py"
+            module.write_text(
+                "import json,sys\n"
+                "from madmamba.lifecycle import application_lifecycle\n"
+                "print(json.dumps({'argv': sys.argv, 'live': application_lifecycle().status().kernel_live}))\n",
+                encoding="utf-8",
+            )
+            sys.path.insert(0, directory)
+            try:
+                stream = io.StringIO()
+                with redirect_stdout(stream):
+                    result = run_python_script(["-m", "madmamba_target_module", "value"])
+            finally:
+                sys.path.remove(directory)
+                sys.modules.pop("madmamba_target_module", None)
+        self.assertEqual(0, result)
+        payload = json.loads(stream.getvalue())
+        self.assertEqual(["madmamba_target_module", "value"], payload["argv"])
+        self.assertTrue(payload["live"])
+        self.assertFalse(lifecycle.status().kernel_live)
+
+    def test_run_python_module_requires_name(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires a module name"):
+            run_python_script(["-m"])
+
     def test_run_python_cli_propagates_target_system_exit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             script = Path(directory) / "exit_target.py"
