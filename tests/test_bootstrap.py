@@ -69,6 +69,7 @@ class BootstrapTests(unittest.TestCase):
             previous_cwd = os.getcwd()
             previous_path = list(sys.path)
             os.chdir(directory)
+            expected_path0 = str(Path.cwd())
             try:
                 stream = io.StringIO()
                 with redirect_stdout(stream):
@@ -80,7 +81,7 @@ class BootstrapTests(unittest.TestCase):
         payload = json.loads(stream.getvalue())
         self.assertEqual(module.resolve(), Path(payload["argv"][0]).resolve())
         self.assertEqual("value", payload["argv"][1])
-        self.assertEqual(str(Path(directory).resolve()), payload["path0"])
+        self.assertEqual(expected_path0, payload["path0"])
         self.assertTrue(payload["live"])
         self.assertEqual(previous_path, sys.path)
         self.assertFalse(lifecycle.status().kernel_live)
