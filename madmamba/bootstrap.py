@@ -7,34 +7,50 @@ from collections.abc import Sequence
 from .lifecycle import managed_application_runtime
 
 
-def run_python_script(application: Sequence[str]) -> int:
-    """Execute one Python script inside the target interpreter lifecycle.
+def _system_exit_code(exc: SystemExit) -> int:
+    if exc.code is None:
+        return 0
+    if isinstance(exc.code, int):
+        return exc.code
+    print(exc.code, file=sys.stderr)
+    return 1
 
-    The script keeps normal Python ``sys.argv`` semantics and inherited stdio.
-    ``SystemExit`` is translated to the same process exit status conventions as
-    the Python command line while other exceptions are deliberately allowed to
-    propagate with their traceback.
+
+def run_python_script(application: Sequence[str]) -> int:
+    """Execute one Python script or module inside the target interpreter lifecycle.
+
+    The target keeps normal Python ``sys.argv`` semantics and inherited stdio.
+    A leading ``-m <module>`` executes the module as ``__main__``. ``SystemExit``
+    is translated to the same process exit status conventions as the Python
+    command line while other exceptions deliberately retain their traceback.
     """
 
     command = list(application)
     if command and command[0] == "--":
         command = command[1:]
     if not command:
-        raise ValueError("run-python requires a Python script")
+        raise ValueError("run-python requires a Python script or -m module")
+
+    module_name: str | None = None
+    if command[0] == "-m":
+        if len(command) < 2 or not command[1].strip():
+            raise ValueError("run-python -m requires a module name")
+        module_name = command[1]
+        target_argv = [module_name, *command[2:]]
+    else:
+        target_argv = [command[0], *command[1:]]
 
     previous_argv = sys.argv
-    sys.argv = [command[0], *command[1:]]
+    sys.argv = target_argv
     try:
         with managed_application_runtime():
             try:
-                runpy.run_path(command[0], run_name="__main__")
+                if module_name is None:
+                    runpy.run_path(command[0], run_name="__main__")
+                else:
+                    runpy.run_module(module_name, run_name="__main__", alter_sys=False)
             except SystemExit as exc:
-                if exc.code is None:
-                    return 0
-                if isinstance(exc.code, int):
-                    return exc.code
-                print(exc.code, file=sys.stderr)
-                return 1
+                return _system_exit_code(exc)
         return 0
     finally:
         sys.argv = previous_argv
