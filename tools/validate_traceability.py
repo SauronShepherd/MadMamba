@@ -25,6 +25,98 @@ def _load_json(path: Path) -> Any:
         return json.load(handle)
 
 
+def _schema_type_matches(value: Any, expected: str) -> bool:
+    if expected == "object":
+        return isinstance(value, dict)
+    if expected == "array":
+        return isinstance(value, list)
+    if expected == "string":
+        return isinstance(value, str)
+    if expected == "boolean":
+        return isinstance(value, bool)
+    if expected == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected == "null":
+        return value is None
+    raise TraceabilityError(f"unsupported traceability schema type: {expected}")
+
+
+def _validate_schema(instance: Any, schema: Any, label: str = "$") -> None:
+    """Validate the JSON-Schema subset used by traceability.schema.json.
+
+    Keeping this evaluator in stdlib preserves the repository's zero-runtime-dependency
+    validation gate while making the checked-in schema executable instead of decorative.
+    Unsupported schema keywords fail closed so the schema cannot silently outgrow the gate.
+    """
+    if not isinstance(schema, dict):
+        raise TraceabilityError(f"{label}: schema node must be an object")
+
+    supported = {
+        "$schema",
+        "type",
+        "const",
+        "required",
+        "properties",
+        "additionalProperties",
+        "items",
+        "minItems",
+        "minLength",
+        "maxLength",
+        "pattern",
+    }
+    unknown = set(schema) - supported
+    if unknown:
+        raise TraceabilityError(f"{label}: unsupported schema keyword(s): {', '.join(sorted(unknown))}")
+
+    expected_type = schema.get("type")
+    if expected_type is not None:
+        if not isinstance(expected_type, str) or not _schema_type_matches(instance, expected_type):
+            raise TraceabilityError(f"{label}: expected schema type {expected_type}")
+
+    if "const" in schema and instance != schema["const"]:
+        raise TraceabilityError(f"{label}: value does not match schema const")
+
+    if isinstance(instance, dict):
+        required = schema.get("required", [])
+        if not isinstance(required, list):
+            raise TraceabilityError(f"{label}: schema required must be an array")
+        missing = [key for key in required if key not in instance]
+        if missing:
+            raise TraceabilityError(f"{label}: missing schema-required field(s): {', '.join(missing)}")
+        properties = schema.get("properties", {})
+        if not isinstance(properties, dict):
+            raise TraceabilityError(f"{label}: schema properties must be an object")
+        if schema.get("additionalProperties") is False:
+            extra = set(instance) - set(properties)
+            if extra:
+                raise TraceabilityError(f"{label}: schema rejects field(s): {', '.join(sorted(extra))}")
+        for key, child_schema in properties.items():
+            if key in instance:
+                _validate_schema(instance[key], child_schema, f"{label}.{key}")
+
+    if isinstance(instance, list):
+        minimum = schema.get("minItems")
+        if minimum is not None and len(instance) < minimum:
+            raise TraceabilityError(f"{label}: schema minItems is {minimum}")
+        item_schema = schema.get("items")
+        if item_schema is not None:
+            for index, item in enumerate(instance):
+                _validate_schema(item, item_schema, f"{label}[{index}]")
+
+    if isinstance(instance, str):
+        minimum = schema.get("minLength")
+        maximum = schema.get("maxLength")
+        pattern = schema.get("pattern")
+        if minimum is not None and len(instance) < minimum:
+            raise TraceabilityError(f"{label}: schema minLength is {minimum}")
+        if maximum is not None and len(instance) > maximum:
+            raise TraceabilityError(f"{label}: schema maxLength is {maximum}")
+        if pattern is not None and re.search(pattern, instance) is None:
+            raise TraceabilityError(f"{label}: value does not match schema pattern")
+
+
 def _require_nonempty_string(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise TraceabilityError(f"{label} must be a non-empty string")
@@ -50,7 +142,9 @@ def _validate_reference(repo_root: Path, ref: Any, label: str) -> None:
         raise TraceabilityError(f"{label} points to missing repository path: {ref}")
 
 
-def validate_catalogue(data: Any, repo_root: Path) -> None:
+def validate_catalogue(data: Any, repo_root: Path, schema: Any | None = None) -> None:
+    if schema is not None:
+        _validate_schema(data, schema)
     if not isinstance(data, dict):
         raise TraceabilityError("catalogue root must be an object")
     if set(data) != {"schemaVersion", "requirements", "tasks"}:
@@ -135,8 +229,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     catalogue = args.catalogue.resolve()
     repo_root = Path(__file__).resolve().parents[1]
+    schema_path = repo_root / "requirements" / "traceability.schema.json"
     try:
-        validate_catalogue(_load_json(catalogue), repo_root)
+        validate_catalogue(_load_json(catalogue), repo_root, _load_json(schema_path))
     except (OSError, json.JSONDecodeError, TraceabilityError) as exc:
         print(f"traceability validation failed: {exc}", file=sys.stderr)
         return 1
