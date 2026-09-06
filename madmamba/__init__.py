@@ -1,5 +1,10 @@
 """MadMamba runtime package."""
 
+from .bundle import (
+    DiagnosticBundleClosedError,
+    DiagnosticBundleWriter,
+    DiagnosticRecordTooLargeError,
+)
 from .lifecycle import (
     InterpreterRuntimeLifecycle,
     application_lifecycle,
@@ -15,6 +20,9 @@ from .runtime import (
 
 __all__ = [
     "CoverageGapError",
+    "DiagnosticBundleClosedError",
+    "DiagnosticBundleWriter",
+    "DiagnosticRecordTooLargeError",
     "InterpreterRuntimeLifecycle",
     "InterpreterRuntimeRegistry",
     "RuntimeAlreadyBootstrappedError",
