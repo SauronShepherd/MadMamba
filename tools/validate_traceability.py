@@ -55,6 +55,8 @@ def _validate_schema(instance: Any, schema: Any, label: str = "$") -> None:
 
     supported = {
         "$schema",
+        "$id",
+        "title",
         "type",
         "const",
         "required",
