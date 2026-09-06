@@ -54,6 +54,18 @@ class FakeMonitoring:
 
 
 class MonitoringLeaseTests(unittest.TestCase):
+    def test_default_inventory_uses_application_slots_only(self) -> None:
+        backend = FakeMonitoring()
+        lease = acquire_monitoring_lease(backend=backend)
+        self.assertEqual(3, lease.tool_id)
+        self.assertEqual({3: "madmamba"}, backend.owners)
+
+    def test_default_inventory_never_falls_back_to_reserved_slots(self) -> None:
+        backend = FakeMonitoring({3: "peer-a", 4: "peer-b"})
+        with self.assertRaisesRegex(MonitoringUnavailableError, "no sys.monitoring tool ID"):
+            acquire_monitoring_lease(backend=backend)
+        self.assertEqual({3: "peer-a", 4: "peer-b"}, backend.owners)
+
     def test_acquire_skips_existing_tools_without_eviction(self) -> None:
         backend = FakeMonitoring({0: "debugger", 1: "coverage"})
         lease = acquire_monitoring_lease(backend=backend, candidate_ids=(0, 1, 2))
