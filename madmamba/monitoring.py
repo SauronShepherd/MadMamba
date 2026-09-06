@@ -175,12 +175,15 @@ def start_monitoring_session(
 def acquire_monitoring_lease(
     *,
     backend: MonitoringBackend | None = None,
-    candidate_ids: tuple[int, ...] = tuple(range(6)),
+    candidate_ids: tuple[int, ...] = (3, 4),
     tool_name: str = "madmamba",
 ) -> MonitoringLease:
-    """Acquire the first available monitoring tool ID without eviction.
+    """Acquire the first available application monitoring tool ID without eviction.
 
-    CPython exposes six tool slots (0..5). A slot is only attempted after it is
+    CPython exposes six tool slots (0..5), but IDs used by the debugger,
+    coverage, profiler, and optimizer are intentionally excluded from the
+    default inventory. Callers may explicitly provide a different candidate
+    set when they own that policy. A slot is only attempted after it is
     observed free, and a racing claim is handled by trying the next candidate.
     Existing owners are never freed or replaced.
     """
