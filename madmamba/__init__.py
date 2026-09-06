@@ -5,6 +5,7 @@ from .bundle import (
     DiagnosticBundleWriter,
     DiagnosticRecordTooLargeError,
 )
+from .bundle_reader import DiagnosticBundleIntegrityError, DiagnosticBundleReader
 from .lifecycle import (
     InterpreterRuntimeLifecycle,
     application_lifecycle,
@@ -21,6 +22,8 @@ from .runtime import (
 __all__ = [
     "CoverageGapError",
     "DiagnosticBundleClosedError",
+    "DiagnosticBundleIntegrityError",
+    "DiagnosticBundleReader",
     "DiagnosticBundleWriter",
     "DiagnosticRecordTooLargeError",
     "InterpreterRuntimeLifecycle",
