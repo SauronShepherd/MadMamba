@@ -18,12 +18,25 @@ class TraceabilityValidationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.catalogue = json.loads((ROOT / "requirements" / "traceability.json").read_text(encoding="utf-8"))
+        cls.schema = json.loads((ROOT / "requirements" / "traceability.schema.json").read_text(encoding="utf-8"))
 
     def validate(self, data: object) -> None:
-        validator.validate_catalogue(data, ROOT)
+        validator.validate_catalogue(data, ROOT, self.schema)
 
     def test_R0_ADR_001_catalogue_is_valid(self) -> None:
         self.validate(self.catalogue)
+
+    def test_R0_ADR_001_schema_is_executed(self) -> None:
+        restrictive = copy.deepcopy(self.schema)
+        restrictive["properties"]["schemaVersion"]["const"] = "9.9.9"
+        with self.assertRaisesRegex(validator.TraceabilityError, "schema const"):
+            validator.validate_catalogue(self.catalogue, ROOT, restrictive)
+
+    def test_R0_ADR_001_schema_fails_closed_on_unknown_keyword(self) -> None:
+        unsupported = copy.deepcopy(self.schema)
+        unsupported["futureKeyword"] = True
+        with self.assertRaisesRegex(validator.TraceabilityError, "unsupported schema keyword"):
+            validator.validate_catalogue(self.catalogue, ROOT, unsupported)
 
     def test_R0_ADR_001_all_R1_tasks_map_to_requirement(self) -> None:
         r1 = [task for task in self.catalogue["tasks"] if task["id"].startswith("R1-")]
@@ -33,19 +46,19 @@ class TraceabilityValidationTests(unittest.TestCase):
     def test_R0_ADR_001_rejects_missing_implementation_link(self) -> None:
         broken = copy.deepcopy(self.catalogue)
         broken["requirements"][0]["implementation"] = []
-        with self.assertRaisesRegex(validator.TraceabilityError, "implementation"):
+        with self.assertRaisesRegex(validator.TraceabilityError, "implementation|minItems"):
             self.validate(broken)
 
     def test_R0_ADR_001_rejects_missing_test_link(self) -> None:
         broken = copy.deepcopy(self.catalogue)
         broken["requirements"][0]["tests"] = []
-        with self.assertRaisesRegex(validator.TraceabilityError, "tests"):
+        with self.assertRaisesRegex(validator.TraceabilityError, "tests|minItems"):
             self.validate(broken)
 
     def test_R0_ADR_001_rejects_missing_documentation_link(self) -> None:
         broken = copy.deepcopy(self.catalogue)
         broken["requirements"][0]["documentation"] = []
-        with self.assertRaisesRegex(validator.TraceabilityError, "documentation"):
+        with self.assertRaisesRegex(validator.TraceabilityError, "documentation|minItems"):
             self.validate(broken)
 
     def test_R0_ADR_001_rejects_unknown_requirement_mapping(self) -> None:
@@ -81,7 +94,7 @@ class TraceabilityValidationTests(unittest.TestCase):
     def test_R0_ADR_001_rejects_unknown_root_field(self) -> None:
         broken = copy.deepcopy(self.catalogue)
         broken["unexpected"] = True
-        with self.assertRaisesRegex(validator.TraceabilityError, "only schemaVersion"):
+        with self.assertRaisesRegex(validator.TraceabilityError, "schema rejects field|only schemaVersion"):
             self.validate(broken)
 
     def test_R0_ADR_001_parser_rejects_invalid_json(self) -> None:
