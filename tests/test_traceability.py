@@ -61,6 +61,24 @@ class TraceabilityValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(validator.TraceabilityError, "documentation|minItems"):
             self.validate(broken)
 
+    def test_R0_ADR_001_implemented_claim_cannot_use_planned_code(self) -> None:
+        broken = copy.deepcopy(self.catalogue)
+        broken["requirements"][0]["implementation"] = ["planned:R1-CLI-999"]
+        with self.assertRaisesRegex(validator.TraceabilityError, "concrete repository evidence|planned evidence"):
+            self.validate(broken)
+
+    def test_R0_ADR_001_partial_claim_requires_concrete_tests(self) -> None:
+        broken = copy.deepcopy(self.catalogue)
+        partial = next(req for req in broken["requirements"] if req["status"] == "partial")
+        partial["tests"] = ["planned:future-parity-test"]
+        with self.assertRaisesRegex(validator.TraceabilityError, "concrete repository evidence"):
+            self.validate(broken)
+
+    def test_R0_ADR_001_planned_claim_may_remain_roadmap_only(self) -> None:
+        planned = next(req for req in self.catalogue["requirements"] if req["status"] == "planned")
+        self.assertTrue(all(ref.startswith("planned:") for ref in planned["implementation"]))
+        self.validate(self.catalogue)
+
     def test_R0_ADR_001_rejects_unknown_requirement_mapping(self) -> None:
         broken = copy.deepcopy(self.catalogue)
         broken["tasks"][0]["requirements"] = ["FR-FAKE-999"]

@@ -14,6 +14,7 @@ REQ_ID = re.compile(r"^((FR|NFR)-[A-Z0-9]+-[0-9]{3}|SEC-[0-9]{3})$")
 TASK_ID = re.compile(r"^R[0-9]+-[A-Z0-9]+-[0-9]{3}$")
 REF_PREFIXES = ("planned:", "spec:")
 REQUIRED_LINK_FIELDS = ("implementation", "tests", "documentation")
+REQUIREMENT_STATUSES = {"planned", "partial", "implemented"}
 
 
 class TraceabilityError(ValueError):
@@ -44,12 +45,7 @@ def _schema_type_matches(value: Any, expected: str) -> bool:
 
 
 def _validate_schema(instance: Any, schema: Any, label: str = "$") -> None:
-    """Validate the JSON-Schema subset used by traceability.schema.json.
-
-    Keeping this evaluator in stdlib preserves the repository's zero-runtime-dependency
-    validation gate while making the checked-in schema executable instead of decorative.
-    Unsupported schema keywords fail closed so the schema cannot silently outgrow the gate.
-    """
+    """Validate the JSON-Schema subset used by traceability.schema.json."""
     if not isinstance(schema, dict):
         raise TraceabilityError(f"{label}: schema node must be an object")
 
@@ -144,6 +140,28 @@ def _validate_reference(repo_root: Path, ref: Any, label: str) -> None:
         raise TraceabilityError(f"{label} points to missing repository path: {ref}")
 
 
+def _is_concrete_reference(ref: Any) -> bool:
+    return isinstance(ref, str) and not ref.startswith(REF_PREFIXES)
+
+
+def _validate_evidence_status(requirement: dict[str, Any], label: str) -> None:
+    status = _require_nonempty_string(requirement["status"], f"{label}.status")
+    if status not in REQUIREMENT_STATUSES:
+        raise TraceabilityError(f"{label}.status must be planned, partial, or implemented")
+    if status == "planned":
+        return
+
+    for field in ("implementation", "tests"):
+        refs = requirement[field]
+        concrete = [ref for ref in refs if _is_concrete_reference(ref)]
+        if not concrete:
+            raise TraceabilityError(f"{label}.{field} requires concrete repository evidence for {status} status")
+        if status == "implemented":
+            planned = [ref for ref in refs if isinstance(ref, str) and ref.startswith("planned:")]
+            if planned:
+                raise TraceabilityError(f"{label}.{field} cannot contain planned evidence for implemented status")
+
+
 def validate_catalogue(data: Any, repo_root: Path, schema: Any | None = None) -> None:
     if schema is not None:
         _validate_schema(data, schema)
@@ -151,7 +169,7 @@ def validate_catalogue(data: Any, repo_root: Path, schema: Any | None = None) ->
         raise TraceabilityError("catalogue root must be an object")
     if set(data) != {"schemaVersion", "requirements", "tasks"}:
         raise TraceabilityError("catalogue must contain only schemaVersion, requirements, and tasks")
-    if data["schemaVersion"] != "1.0.0":
+    if data["schemaVersion"] != "1.1.0":
         raise TraceabilityError("unsupported schemaVersion")
 
     requirements = data["requirements"]
@@ -166,7 +184,7 @@ def validate_catalogue(data: Any, repo_root: Path, schema: Any | None = None) ->
         label = f"requirements[{index}]"
         if not isinstance(requirement, dict):
             raise TraceabilityError(f"{label} must be an object")
-        expected = {"id", "summary", "source", "implementation", "tests", "documentation", "releaseClaim"}
+        expected = {"id", "summary", "status", "source", "implementation", "tests", "documentation", "releaseClaim"}
         if set(requirement) != expected:
             raise TraceabilityError(f"{label} fields must be exactly {sorted(expected)}")
         req_id = _require_nonempty_string(requirement["id"], f"{label}.id")
@@ -187,6 +205,7 @@ def validate_catalogue(data: Any, repo_root: Path, schema: Any | None = None) ->
             _require_unique(refs, f"{label}.{field}")
             for ref_index, ref in enumerate(refs):
                 _validate_reference(repo_root, ref, f"{label}.{field}[{ref_index}]")
+        _validate_evidence_status(requirement, label)
 
     task_ids: set[str] = set()
     r1_tasks = 0
