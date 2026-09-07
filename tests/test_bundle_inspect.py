@@ -17,9 +17,9 @@ class BundleInspectTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             writer = DiagnosticBundleWriter(root)
-            writer.append("runtime", {"secret": "must-not-appear"})
-            writer.append("runtime", {"value": 2})
-            writer.append("spark", {"stage": 3})
+            writer.write("runtime", {"secret": "must-not-appear"})
+            writer.write("runtime", {"value": 2})
+            writer.write("spark", {"stage": 3})
             writer.close()
 
             summary = inspect_bundle(root)
@@ -40,7 +40,7 @@ class BundleInspectTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             writer = DiagnosticBundleWriter(root)
-            writer.append("runtime", {"value": 1})
+            writer.write("runtime", {"value": 1})
 
             stderr = io.StringIO()
             with redirect_stderr(stderr):
@@ -54,7 +54,7 @@ class BundleInspectTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             writer = DiagnosticBundleWriter(root)
-            writer.append("runtime", {"value": 1})
+            writer.write("runtime", {"value": 1})
             segment = root / "events.jsonl"
             with segment.open("ab") as stream:
                 stream.write(b'{"recordType":"runtime"')
