@@ -6,6 +6,7 @@ from .bundle import (
     DiagnosticRecordTooLargeError,
 )
 from .bundle_reader import DiagnosticBundleIntegrityError, DiagnosticBundleReader
+from .bundle_recovery import DiagnosticBundleRecovery, RecoveredDiagnosticBundle
 from .lifecycle import (
     InterpreterRuntimeLifecycle,
     application_lifecycle,
@@ -24,10 +25,12 @@ __all__ = [
     "DiagnosticBundleClosedError",
     "DiagnosticBundleIntegrityError",
     "DiagnosticBundleReader",
+    "DiagnosticBundleRecovery",
     "DiagnosticBundleWriter",
     "DiagnosticRecordTooLargeError",
     "InterpreterRuntimeLifecycle",
     "InterpreterRuntimeRegistry",
+    "RecoveredDiagnosticBundle",
     "RuntimeAlreadyBootstrappedError",
     "RuntimeKernel",
     "application_lifecycle",
