@@ -8,6 +8,8 @@ import sys
 from importlib.metadata import PackageNotFoundError, version
 from typing import Sequence
 
+from .bundle_inspect import inspect_bundle
+from .bundle_reader import DiagnosticBundleIntegrityError
 from .lifecycle import InterpreterRuntimeLifecycle, RuntimeLifecycleStatus, application_lifecycle
 
 
@@ -62,6 +64,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run a Python script inside MadMamba's target-interpreter runtime lifecycle.",
     )
     run_python.add_argument("application", nargs=argparse.REMAINDER, help="Python script and arguments, optionally after --.")
+    bundle_inspect = subcommands.add_parser(
+        "bundle-inspect",
+        help="Validate and summarize a diagnostic bundle without exposing payload contents.",
+    )
+    bundle_inspect.add_argument("directory", help="Diagnostic bundle directory.")
+    bundle_inspect.add_argument(
+        "--recover-open",
+        action="store_true",
+        help="Recover complete records from an interrupted OPEN bundle.",
+    )
     return parser
 
 
@@ -127,6 +139,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return run_python_application(args.application)
         except ValueError as exc:
             parser.error(str(exc))
+    if args.command == "bundle-inspect":
+        try:
+            payload = inspect_bundle(args.directory, recover_open=args.recover_open)
+        except DiagnosticBundleIntegrityError as exc:
+            print(f"madmamba: bundle integrity error: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        return 0
     parser.error(f"unsupported command: {args.command}")
     return 2
 
