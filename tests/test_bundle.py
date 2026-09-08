@@ -2,16 +2,38 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from madmamba.bundle import (
     DiagnosticBundleClosedError,
     DiagnosticBundleWriter,
     DiagnosticRecordTooLargeError,
 )
+
+
+class _PartialWriteFailure:
+    def __init__(self, stream: object) -> None:
+        self._stream = stream
+
+    def write(self, data: bytes) -> int:
+        midpoint = max(1, len(data) // 2)
+        self._stream.write(data[:midpoint])  # type: ignore[attr-defined]
+        self._stream.flush()  # type: ignore[attr-defined]
+        raise OSError("simulated partial write")
+
+    def flush(self) -> None:
+        self._stream.flush()  # type: ignore[attr-defined]
+
+    def fileno(self) -> int:
+        return self._stream.fileno()  # type: ignore[attr-defined,no-any-return]
+
+    def close(self) -> None:
+        self._stream.close()  # type: ignore[attr-defined]
 
 
 class DiagnosticBundleWriterTests(unittest.TestCase):
@@ -92,6 +114,42 @@ class DiagnosticBundleWriterTests(unittest.TestCase):
             writer.close()
             with self.assertRaises(DiagnosticBundleClosedError):
                 writer.write("late", {})
+
+    @unittest.skipIf(os.name == "nt", "directory fsync is POSIX-only")
+    def test_manifest_replace_fsyncs_directory_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            writer = DiagnosticBundleWriter(directory)
+            with (
+                mock.patch("madmamba.bundle.os.open", return_value=123) as open_mock,
+                mock.patch("madmamba.bundle.os.fsync") as fsync_mock,
+                mock.patch("madmamba.bundle.os.close") as close_mock,
+            ):
+                writer.close()
+
+            open_mock.assert_called_once_with(writer.directory, os.O_RDONLY)
+            fsync_mock.assert_any_call(123)
+            close_mock.assert_called_once_with(123)
+
+    def test_partial_write_oserror_poison_bundle_and_rejects_future_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            writer = DiagnosticBundleWriter(directory)
+            writer._segment = _PartialWriteFailure(writer._segment)  # type: ignore[assignment]
+
+            with self.assertRaisesRegex(OSError, "simulated partial write"):
+                writer.write("metric", {"value": 1})
+
+            self.assertEqual(0, writer.records_written)
+            self.assertEqual(0, writer.bytes_written)
+            with self.assertRaises(DiagnosticBundleClosedError):
+                writer.write("late", {})
+
+            root = Path(directory)
+            manifest = json.loads((root / "madmamba-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual("FAILED", manifest["state"])
+            self.assertEqual(0, manifest["records"])
+            self.assertEqual(0, manifest["bytes"])
+            self.assertNotIn("sha256", manifest["files"][0])
+            self.assertNotEqual(b"", (root / "events.jsonl").read_bytes())
 
 
 if __name__ == "__main__":
