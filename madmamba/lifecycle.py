@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 
+from .bundle import DiagnosticBundleWriter
 from .monitoring import MonitoringSession
 from .runtime import InterpreterRuntimeRegistry, RuntimeKernel, current_interpreter_key
 from .runtime_monitoring import InterpreterMonitoringSessions
@@ -59,12 +60,26 @@ class InterpreterRuntimeLifecycle:
             monitoring_tool_id=monitoring.tool_id,
         )
 
+    @staticmethod
+    def _bundle_payload(status: RuntimeLifecycleStatus) -> dict[str, object]:
+        """Return bounded lifecycle metadata suitable for local diagnostic bundles."""
+
+        return {
+            "interpreterKey": status.interpreter_key,
+            "kernelLive": status.kernel_live,
+            "monitoringAttached": status.monitoring_attached,
+            "monitoringDegraded": status.monitoring_degraded,
+            "monitoringEvents": status.monitoring_events,
+            "monitoringToolId": status.monitoring_tool_id,
+        }
+
     @contextmanager
     def managed(
         self,
         interpreter_key: int | None = None,
         *,
         monitoring_session: MonitoringSession | None = None,
+        diagnostic_writer: DiagnosticBundleWriter | None = None,
     ) -> Iterator[RuntimeKernel]:
         """Own one exclusive runtime generation for a bounded lifecycle scope."""
 
@@ -72,9 +87,21 @@ class InterpreterRuntimeLifecycle:
         try:
             if monitoring_session is not None:
                 self.attach_monitoring(kernel, monitoring_session)
+            if diagnostic_writer is not None:
+                diagnostic_writer.write(
+                    "runtime.started",
+                    self._bundle_payload(self.status(kernel.interpreter_key)),
+                )
             yield kernel
         finally:
-            self.close(kernel)
+            try:
+                if diagnostic_writer is not None:
+                    diagnostic_writer.write(
+                        "runtime.stopped",
+                        self._bundle_payload(self.status(kernel.interpreter_key)),
+                    )
+            finally:
+                self.close(kernel)
 
 
 _application_lifecycle = InterpreterRuntimeLifecycle()
@@ -88,9 +115,14 @@ def application_lifecycle() -> InterpreterRuntimeLifecycle:
 
 @contextmanager
 def managed_application_runtime(
-    *, monitoring_session: MonitoringSession | None = None
+    *,
+    monitoring_session: MonitoringSession | None = None,
+    diagnostic_writer: DiagnosticBundleWriter | None = None,
 ) -> Iterator[RuntimeKernel]:
     """Own the shared in-process runtime used by diagnostics and instrumentation."""
 
-    with _application_lifecycle.managed(monitoring_session=monitoring_session) as kernel:
+    with _application_lifecycle.managed(
+        monitoring_session=monitoring_session,
+        diagnostic_writer=diagnostic_writer,
+    ) as kernel:
         yield kernel
