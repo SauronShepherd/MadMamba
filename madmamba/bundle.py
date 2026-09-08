@@ -100,8 +100,12 @@ class DiagnosticBundleWriter:
                     f"encoded diagnostic record is {len(encoded)} bytes; "
                     f"limit is {self.max_record_bytes}"
                 )
-            self._segment.write(encoded)
-            self._segment.flush()
+            try:
+                self._segment.write(encoded)
+                self._segment.flush()
+            except OSError:
+                self._poison_after_write_error()
+                raise
             self._sha256.update(encoded)
             self._sequence = sequence
             self._records += 1
@@ -119,6 +123,26 @@ class DiagnosticBundleWriter:
             self._segment.close()
             self._closed = True
             self._write_manifest(state="FINAL")
+
+    def _poison_after_write_error(self) -> None:
+        """Best-effort publish FAILED state after an I/O error during a record write.
+
+        A short/partial write can leave bytes in the segment that are absent from
+        the in-memory checksum and counters. The bundle must therefore never
+        accept another record or publish a FINAL manifest after such a failure.
+        """
+
+        self._closed = True
+        try:
+            self._segment.close()
+        except OSError:
+            pass
+        try:
+            self._write_manifest(state="FAILED")
+        except OSError:
+            # Preserve the original record-write error. The missing/OPEN manifest
+            # still prevents the bundle from being mistaken for a valid FINAL one.
+            pass
 
     def _manifest(self, *, state: str) -> dict[str, object]:
         file_entry: dict[str, object] = {
@@ -151,3 +175,15 @@ class DiagnosticBundleWriter:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, self.manifest_path)
+        self._fsync_directory()
+
+    def _fsync_directory(self) -> None:
+        """Persist the manifest directory entry after atomic replacement on POSIX."""
+
+        if os.name == "nt":
+            return
+        descriptor = os.open(self.directory, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
