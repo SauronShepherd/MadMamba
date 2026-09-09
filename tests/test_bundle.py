@@ -61,6 +61,25 @@ class DiagnosticBundleWriterTests(unittest.TestCase):
             self.assertEqual(2, manifest["files"][0]["records"])
             self.assertEqual(hashlib.sha256(segment).hexdigest(), manifest["files"][0]["sha256"])
 
+    def test_open_manifest_tracks_committed_record_progress(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            writer = DiagnosticBundleWriter(directory)
+            root = Path(directory)
+            initial = json.loads((root / "madmamba-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual("OPEN", initial["state"])
+            self.assertEqual(0, initial["records"])
+            self.assertEqual(0, initial["bytes"])
+
+            writer.write("metric", {"value": 1})
+            segment = (root / "events.jsonl").read_bytes()
+            progress = json.loads((root / "madmamba-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual("OPEN", progress["state"])
+            self.assertEqual(1, progress["records"])
+            self.assertEqual(len(segment), progress["bytes"])
+            self.assertEqual(1, progress["files"][0]["records"])
+            self.assertNotIn("sha256", progress["files"][0])
+            writer.close()
+
     def test_failed_encoding_does_not_consume_sequence_or_append_partial_line(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             with DiagnosticBundleWriter(directory) as writer:
@@ -150,6 +169,32 @@ class DiagnosticBundleWriterTests(unittest.TestCase):
             self.assertEqual(0, manifest["bytes"])
             self.assertNotIn("sha256", manifest["files"][0])
             self.assertNotEqual(b"", (root / "events.jsonl").read_bytes())
+
+    def test_open_manifest_write_failure_poison_bundle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            writer = DiagnosticBundleWriter(directory)
+            original = writer._write_manifest
+            calls = 0
+
+            def fail_first_progress(*, state: str) -> None:
+                nonlocal calls
+                calls += 1
+                if calls == 1 and state == "OPEN":
+                    raise OSError("simulated manifest progress failure")
+                original(state=state)
+
+            writer._write_manifest = fail_first_progress  # type: ignore[method-assign]
+            with self.assertRaisesRegex(OSError, "simulated manifest progress failure"):
+                writer.write("metric", {"value": 1})
+            with self.assertRaises(DiagnosticBundleClosedError):
+                writer.write("late", {})
+
+            manifest = json.loads(
+                (Path(directory) / "madmamba-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("FAILED", manifest["state"])
+            self.assertEqual(1, manifest["records"])
+            self.assertGreater(manifest["bytes"], 0)
 
 
 if __name__ == "__main__":
