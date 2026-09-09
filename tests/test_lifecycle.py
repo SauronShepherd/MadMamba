@@ -15,6 +15,30 @@ class InterpreterRuntimeLifecycleTests(unittest.TestCase):
             self.assertIs(kernel, lifecycle.runtimes.require(901))
         self.assertIsNone(lifecycle.runtimes.get(901))
 
+    def test_managed_scope_is_reentrant_and_only_outer_scope_owns_teardown(self) -> None:
+        lifecycle = InterpreterRuntimeLifecycle()
+        session = Mock(spec=MonitoringSession)
+        with lifecycle.managed(907, monitoring_session=session) as outer:
+            with lifecycle.managed(907) as middle:
+                with lifecycle.managed() as inner:
+                    self.assertIs(outer, middle)
+                    self.assertIs(outer, inner)
+                    self.assertIs(outer, lifecycle.runtimes.require(907))
+                self.assertIs(outer, lifecycle.runtimes.require(907))
+            self.assertIs(outer, lifecycle.runtimes.require(907))
+            session.close.assert_not_called()
+        session.close.assert_called_once_with()
+        self.assertIsNone(lifecycle.runtimes.get(907))
+
+    def test_nested_scope_cannot_cross_interpreter_boundary(self) -> None:
+        lifecycle = InterpreterRuntimeLifecycle()
+        with lifecycle.managed(908):
+            with self.assertRaisesRegex(ValueError, "cannot change interpreter"):
+                with lifecycle.managed(909):
+                    self.fail("nested scope must not cross interpreter boundary")
+        self.assertIsNone(lifecycle.runtimes.get(908))
+        self.assertIsNone(lifecycle.runtimes.get(909))
+
     def test_managed_scope_closes_monitoring_on_exception(self) -> None:
         lifecycle = InterpreterRuntimeLifecycle()
         session = Mock(spec=MonitoringSession)
