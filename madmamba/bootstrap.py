@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import os
 import runpy
 import sys
 from collections.abc import Sequence
+from contextlib import nullcontext
 from pathlib import Path
 
+from .bundle import DiagnosticBundleWriter
+from .event_producer import create_diagnostic_monitoring_session
 from .lifecycle import managed_application_runtime
 
 
@@ -25,14 +29,7 @@ def _replace_sys_path_head(entry: str) -> None:
 
 
 def run_python_script(application: Sequence[str]) -> int:
-    """Execute one Python script or module inside the target interpreter lifecycle.
-
-    The target keeps normal Python ``sys.argv`` and ``sys.path[0]`` semantics and
-    inherited stdio. A leading ``-m <module>`` executes the module as
-    ``__main__``. ``SystemExit`` is translated to the same process exit status
-    conventions as the Python command line while other exceptions deliberately
-    retain their traceback.
-    """
+    """Execute one Python script or module inside the target interpreter lifecycle."""
 
     command = list(application)
     if command and command[0] == "--":
@@ -55,15 +52,24 @@ def run_python_script(application: Sequence[str]) -> int:
     previous_path = list(sys.path)
     sys.argv = target_argv
     _replace_sys_path_head(target_path_head)
+    bundle_directory = os.environ.get("MADMAMBA_DIAGNOSTIC_BUNDLE", "").strip()
+    bundle_context = DiagnosticBundleWriter(bundle_directory) if bundle_directory else nullcontext(None)
     try:
-        with managed_application_runtime():
-            try:
-                if module_name is None:
-                    runpy.run_path(command[0], run_name="__main__")
-                else:
-                    runpy.run_module(module_name, run_name="__main__", alter_sys=True)
-            except SystemExit as exc:
-                return _system_exit_code(exc)
+        with bundle_context as writer:
+            monitoring_session = (
+                create_diagnostic_monitoring_session(writer) if writer is not None else None
+            )
+            with managed_application_runtime(
+                monitoring_session=monitoring_session,
+                diagnostic_writer=writer,
+            ):
+                try:
+                    if module_name is None:
+                        runpy.run_path(command[0], run_name="__main__")
+                    else:
+                        runpy.run_module(module_name, run_name="__main__", alter_sys=True)
+                except SystemExit as exc:
+                    return _system_exit_code(exc)
         return 0
     finally:
         sys.argv = previous_argv
