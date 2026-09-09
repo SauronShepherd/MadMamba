@@ -65,6 +65,12 @@ class MonitoringLease:
     _released: bool = field(default=False, init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
+    @property
+    def backend(self) -> MonitoringBackend:
+        """Return the backend bound to this lease without exposing mutation of lease state."""
+
+        return self._backend
+
     def owns_slot(self) -> bool:
         """Return whether this lease still owns its monitoring tool slot."""
 
@@ -120,7 +126,7 @@ class MonitoringSession:
             if not self.lease.owns_slot():
                 self.lease.release()
                 return False
-            backend = self.lease._backend
+            backend = self.lease.backend
             backend.set_events(self.lease.tool_id, 0)
             for event in reversed(self.callback_events):
                 backend.register_callback(self.lease.tool_id, event, None)
@@ -156,7 +162,7 @@ def start_monitoring_session(
     if not lease.owns_slot():
         raise MonitoringUnavailableError("monitoring lease no longer owns its tool ID")
 
-    backend = lease._backend
+    backend = lease.backend
     registered: list[int] = []
     try:
         for event, callback in callbacks.items():
