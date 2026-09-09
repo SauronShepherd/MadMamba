@@ -23,8 +23,8 @@ class DiagnosticBundleWriter:
     The writer owns one append-only segment and a small manifest. Record writes are
     serialized so sequence assignment and byte accounting remain correct under
     free-threaded interpreters. Each successful record is flushed as one complete
-    UTF-8 JSON line; close additionally fsyncs the segment before atomically
-    replacing the manifest with its FINAL form.
+    UTF-8 JSON line and publishes refreshed OPEN progress; close additionally
+    fsyncs the segment before atomically replacing the manifest with its FINAL form.
     """
 
     MANIFEST_NAME = "madmamba-manifest.json"
@@ -110,6 +110,11 @@ class DiagnosticBundleWriter:
             self._sequence = sequence
             self._records += 1
             self._bytes += len(encoded)
+            try:
+                self._write_manifest(state="OPEN")
+            except OSError:
+                self._poison_after_write_error()
+                raise
             return sequence
 
     def close(self) -> None:
@@ -127,9 +132,9 @@ class DiagnosticBundleWriter:
     def _poison_after_write_error(self) -> None:
         """Best-effort publish FAILED state after an I/O error during a record write.
 
-        A short/partial write can leave bytes in the segment that are absent from
-        the in-memory checksum and counters. The bundle must therefore never
-        accept another record or publish a FINAL manifest after such a failure.
+        A short/partial write or failed OPEN manifest update can leave segment and
+        manifest progress out of sync. The bundle must therefore never accept
+        another record or publish a FINAL manifest after such a failure.
         """
 
         self._closed = True
@@ -140,7 +145,7 @@ class DiagnosticBundleWriter:
         try:
             self._write_manifest(state="FAILED")
         except OSError:
-            # Preserve the original record-write error. The missing/OPEN manifest
+            # Preserve the original write/progress error. The missing/OPEN manifest
             # still prevents the bundle from being mistaken for a valid FINAL one.
             pass
 
