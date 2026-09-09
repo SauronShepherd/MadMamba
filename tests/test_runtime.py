@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import threading
 import unittest
 
@@ -19,6 +20,17 @@ class InterpreterRuntimeRegistryTests(unittest.TestCase):
         self.assertIs(first, second)
         self.assertEqual(current_interpreter_key(), first.interpreter_key)
         self.assertEqual((first.interpreter_key,), registry.registered_interpreters())
+
+    def test_interpreter_key_survives_sys_modules_reassignment_and_teardown(self) -> None:
+        registry = InterpreterRuntimeRegistry()
+        kernel = registry.claim()
+        original_modules = sys.modules
+        try:
+            sys.modules = dict(original_modules)
+            self.assertEqual(kernel.interpreter_key, current_interpreter_key())
+            self.assertIs(kernel, registry.unregister(expected_kernel=kernel))
+        finally:
+            sys.modules = original_modules
 
     def test_unbootstrapped_interpreter_is_reported_as_coverage_gap(self) -> None:
         registry = InterpreterRuntimeRegistry()
