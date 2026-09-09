@@ -5,8 +5,8 @@ import json
 import platform
 import subprocess
 import sys
+from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError, version
-from typing import Sequence
 
 from .bundle_inspect import inspect_bundle
 from .bundle_reader import DiagnosticBundleIntegrityError
@@ -33,6 +33,13 @@ def _lifecycle_payload(status: RuntimeLifecycleStatus) -> dict[str, object]:
     }
 
 
+def _is_free_threaded() -> bool:
+    checker = getattr(sys, "_is_gil_enabled", None)
+    if callable(checker):
+        return not bool(checker())
+    return bool(getattr(sys.flags, "gil", 1) == 0)
+
+
 def doctor_payload(lifecycle: InterpreterRuntimeLifecycle | None = None) -> dict[str, object]:
     """Return bounded, non-secret runtime capability and lifecycle diagnostics."""
 
@@ -43,7 +50,7 @@ def doctor_payload(lifecycle: InterpreterRuntimeLifecycle | None = None) -> dict
         "pythonVersion": platform.python_version(),
         "implementation": platform.python_implementation(),
         "sysMonitoringAvailable": monitoring is not None,
-        "freeThreaded": bool(getattr(sys.flags, "gil", 1) == 0),
+        "freeThreaded": _is_free_threaded(),
         "runtimeLifecycle": _lifecycle_payload(owner.status()),
     }
 
@@ -57,13 +64,14 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command")
     doctor = subcommands.add_parser("doctor", help="Report local runtime capabilities.")
     doctor.add_argument("--json", action="store_true", dest="as_json", help="Emit machine-readable JSON.")
-    run = subcommands.add_parser("run", help="Run an application without changing its arguments or stdio.")
-    run.add_argument("application", nargs=argparse.REMAINDER, help="Application command, optionally after --.")
-    run_python = subcommands.add_parser(
-        "run-python",
-        help="Run a Python script inside MadMamba's target-interpreter runtime lifecycle.",
+    subcommands.add_parser(
+        "run",
+        help="Run an application without changing its arguments or stdio. Use -- before the target command when needed.",
     )
-    run_python.add_argument("application", nargs=argparse.REMAINDER, help="Python script and arguments, optionally after --.")
+    subcommands.add_parser(
+        "run-python",
+        help="Run a Python script inside MadMamba's target-interpreter runtime lifecycle. Use -- before target arguments when needed.",
+    )
     bundle_inspect = subcommands.add_parser(
         "bundle-inspect",
         help="Validate and summarize a diagnostic bundle without exposing payload contents.",
@@ -87,6 +95,8 @@ def run_application(application: Sequence[str]) -> int:
         raise ValueError("run requires an application command")
     try:
         return subprocess.run(command, check=False).returncode
+    except PermissionError:
+        return 126
     except FileNotFoundError:
         return 127
 
@@ -99,19 +109,28 @@ def run_python_application(application: Sequence[str]) -> int:
         command = command[1:]
     if not command:
         raise ValueError("run-python requires a Python script")
-    return subprocess.run(
-        [sys.executable, "-m", "madmamba.bootstrap", "--", *command],
-        check=False,
-    ).returncode
+    try:
+        return subprocess.run(
+            [sys.executable, "-m", "madmamba.bootstrap", "--", *command],
+            check=False,
+        ).returncode
+    except PermissionError:
+        return 126
+    except FileNotFoundError:
+        return 127
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args, remainder = parser.parse_known_args(argv)
     if args.command is None:
+        if remainder:
+            parser.error(f"unrecognized arguments: {' '.join(remainder)}")
         parser.print_help()
         return 0
     if args.command == "doctor":
+        if remainder:
+            parser.error(f"unrecognized arguments: {' '.join(remainder)}")
         payload = doctor_payload()
         if args.as_json:
             print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
@@ -131,15 +150,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "run":
         try:
-            return run_application(args.application)
+            return run_application(remainder)
         except ValueError as exc:
             parser.error(str(exc))
     if args.command == "run-python":
         try:
-            return run_python_application(args.application)
+            return run_python_application(remainder)
         except ValueError as exc:
             parser.error(str(exc))
     if args.command == "bundle-inspect":
+        if remainder:
+            parser.error(f"unrecognized arguments: {' '.join(remainder)}")
         try:
             payload = inspect_bundle(args.directory, recover_open=args.recover_open)
         except DiagnosticBundleIntegrityError as exc:
