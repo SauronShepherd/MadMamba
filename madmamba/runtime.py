@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import sys
 import threading
 from dataclasses import dataclass
 
@@ -22,15 +21,21 @@ class RuntimeKernel:
     interpreter_key: int
 
 
-def current_interpreter_key() -> int:
-    """Return a process-local identity for the current Python interpreter.
+# Imported modules are interpreter-local in CPython, so this object is created once
+# per interpreter. Keeping a strong reference prevents its identity from being
+# recycled, unlike a user-reassignable object such as ``sys.modules``.
+_INTERPRETER_TOKEN = object()
 
-    ``sys.modules`` is interpreter-local in CPython. Its object identity therefore
-    gives MadMamba a cheap, non-global key without depending on unstable private
-    subinterpreter APIs.
+
+def current_interpreter_key() -> int:
+    """Return a stable process-local identity for the current Python interpreter.
+
+    The module-level token is created independently in each interpreter and remains
+    strongly referenced for the lifetime of that interpreter. User code cannot
+    invalidate the key by reassigning ``sys.modules`` during a managed runtime.
     """
 
-    return id(sys.modules)
+    return id(_INTERPRETER_TOKEN)
 
 
 class InterpreterRuntimeRegistry:
