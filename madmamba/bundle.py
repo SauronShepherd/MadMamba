@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from .sanitizer import sanitize_diagnostic_payload
+
 
 class DiagnosticBundleClosedError(RuntimeError):
     """Raised when a record is written after the bundle is closed."""
@@ -20,11 +22,11 @@ class DiagnosticRecordTooLargeError(ValueError):
 class DiagnosticBundleWriter:
     """Write a bounded, checksummed diagnostic JSONL bundle.
 
-    The writer owns one append-only segment and a small manifest. Record writes are
-    serialized so sequence assignment and byte accounting remain correct under
-    free-threaded interpreters. Each successful record is flushed as one complete
-    UTF-8 JSON line and publishes refreshed OPEN progress; close additionally
-    fsyncs the segment before atomically replacing the manifest with its FINAL form.
+    Every payload crosses the package privacy boundary before serialization.
+    Application locals, frames and arguments are rejected; secret-looking fields
+    and credential forms are redacted recursively. The writer owns one append-only
+    segment and a small manifest. Record writes are serialized so sequence
+    assignment and byte accounting remain correct under free-threaded interpreters.
     """
 
     MANIFEST_NAME = "madmamba-manifest.json"
@@ -70,17 +72,18 @@ class DiagnosticBundleWriter:
             return self._bytes
 
     def write(self, record_type: str, payload: Mapping[str, Any]) -> int:
-        """Append one typed record and return its monotonically increasing sequence."""
+        """Append one sanitized typed record and return its monotonically increasing sequence."""
 
         normalized_type = record_type.strip()
         if not normalized_type:
             raise ValueError("record_type must not be empty")
+        sanitized_payload = sanitize_diagnostic_payload(payload)
         with self._lock:
             if self._closed:
                 raise DiagnosticBundleClosedError("diagnostic bundle is closed")
             sequence = self._sequence + 1
             record = {
-                "payload": dict(payload),
+                "payload": sanitized_payload,
                 "recordType": normalized_type,
                 "schemaVersion": 1,
                 "sequence": sequence,
@@ -130,12 +133,7 @@ class DiagnosticBundleWriter:
             self._write_manifest(state="FINAL")
 
     def _poison_after_write_error(self) -> None:
-        """Best-effort publish FAILED state after an I/O error during a record write.
-
-        A short/partial write or failed OPEN manifest update can leave segment and
-        manifest progress out of sync. The bundle must therefore never accept
-        another record or publish a FINAL manifest after such a failure.
-        """
+        """Best-effort publish FAILED state after an I/O error during a record write."""
 
         self._closed = True
         try:
@@ -145,8 +143,6 @@ class DiagnosticBundleWriter:
         try:
             self._write_manifest(state="FAILED")
         except OSError:
-            # Preserve the original write/progress error. The missing/OPEN manifest
-            # still prevents the bundle from being mistaken for a valid FINAL one.
             pass
 
     def _manifest(self, *, state: str) -> dict[str, object]:
