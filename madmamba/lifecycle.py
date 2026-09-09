@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 from .bundle import DiagnosticBundleWriter
@@ -28,6 +29,9 @@ class InterpreterRuntimeLifecycle:
     def __init__(self, runtimes: InterpreterRuntimeRegistry | None = None) -> None:
         self.runtimes = runtimes or InterpreterRuntimeRegistry()
         self.monitoring = InterpreterMonitoringSessions(self.runtimes)
+        self._managed_kernel: ContextVar[RuntimeKernel | None] = ContextVar(
+            f"madmamba_managed_kernel_{id(self)}", default=None
+        )
 
     def bootstrap(self, interpreter_key: int | None = None) -> RuntimeKernel:
         return self.runtimes.bootstrap(interpreter_key)
@@ -81,9 +85,24 @@ class InterpreterRuntimeLifecycle:
         monitoring_session: MonitoringSession | None = None,
         diagnostic_writer: DiagnosticBundleWriter | None = None,
     ) -> Iterator[RuntimeKernel]:
-        """Own one exclusive runtime generation for a bounded lifecycle scope."""
+        """Own or borrow one runtime generation for a bounded lifecycle scope.
+
+        Nested scopes in the same execution context borrow the outer kernel instead
+        of attempting a second exclusive claim. Only the outer scope owns monitoring,
+        bundle lifecycle events and teardown. Explicitly targeting a different
+        interpreter while nested remains an error rather than silently crossing
+        interpreter boundaries.
+        """
+
+        borrowed = self._managed_kernel.get()
+        if borrowed is not None:
+            if interpreter_key is not None and interpreter_key != borrowed.interpreter_key:
+                raise ValueError("nested runtime scope cannot change interpreter")
+            yield borrowed
+            return
 
         kernel = self.runtimes.claim(interpreter_key)
+        token = self._managed_kernel.set(kernel)
         try:
             if monitoring_session is not None:
                 self.attach_monitoring(kernel, monitoring_session)
@@ -101,7 +120,10 @@ class InterpreterRuntimeLifecycle:
                         self._bundle_payload(self.status(kernel.interpreter_key)),
                     )
             finally:
-                self.close(kernel)
+                try:
+                    self.close(kernel)
+                finally:
+                    self._managed_kernel.reset(token)
 
 
 _application_lifecycle = InterpreterRuntimeLifecycle()
