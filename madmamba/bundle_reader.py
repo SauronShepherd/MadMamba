@@ -15,8 +15,8 @@ class DiagnosticBundleReader:
     """Load and validate a finalized MadMamba diagnostic bundle.
 
     Validation is fail-closed: records are returned only after manifest metadata,
-    file size, SHA-256, record count, schema version, and contiguous sequence
-    numbers have all been verified.
+    every segment size and SHA-256, per-segment record counts, schema versions,
+    global sequence continuity, and aggregate totals have all been verified.
     """
 
     MANIFEST_NAME = "madmamba-manifest.json"
@@ -31,68 +31,88 @@ class DiagnosticBundleReader:
     def read_records(self) -> list[dict[str, Any]]:
         manifest = self._read_manifest()
         files = manifest.get("files")
-        if not isinstance(files, list) or len(files) != 1:
-            raise DiagnosticBundleIntegrityError("manifest must describe exactly one segment")
-        entry = files[0]
-        if not isinstance(entry, dict):
-            raise DiagnosticBundleIntegrityError("manifest file entry must be an object")
-
-        relative_path = entry.get("path")
-        if not isinstance(relative_path, str) or not relative_path:
-            raise DiagnosticBundleIntegrityError("manifest file path must be a non-empty string")
-        segment_path = self._safe_child(relative_path)
-
-        expected_bytes = self._nonnegative_int(entry.get("bytes"), "file bytes")
-        expected_records = self._nonnegative_int(entry.get("records"), "file records")
-        expected_sha = entry.get("sha256")
-        if not isinstance(expected_sha, str) or len(expected_sha) != 64:
-            raise DiagnosticBundleIntegrityError("final manifest requires a SHA-256 digest")
-
-        raw = segment_path.read_bytes()
-        if len(raw) != expected_bytes:
-            raise DiagnosticBundleIntegrityError(
-                f"segment byte count mismatch: expected {expected_bytes}, got {len(raw)}"
-            )
-        actual_sha = hashlib.sha256(raw).hexdigest()
-        if actual_sha != expected_sha:
-            raise DiagnosticBundleIntegrityError("segment SHA-256 mismatch")
-        if raw and not raw.endswith(b"\n"):
-            raise DiagnosticBundleIntegrityError("segment ends with an incomplete JSONL record")
+        if not isinstance(files, list) or not files:
+            raise DiagnosticBundleIntegrityError("manifest must describe at least one segment")
 
         records: list[dict[str, Any]] = []
         expected_sequence = 1
-        for line_number, line in enumerate(raw.splitlines(), start=1):
-            try:
-                value = json.loads(line)
-            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                raise DiagnosticBundleIntegrityError(
-                    f"invalid JSONL record at line {line_number}"
-                ) from exc
-            if not isinstance(value, dict):
-                raise DiagnosticBundleIntegrityError(f"record {line_number} must be an object")
-            if value.get("schemaVersion") != self.RECORD_SCHEMA_VERSION:
-                raise DiagnosticBundleIntegrityError(
-                    f"record {line_number} has unsupported schemaVersion"
-                )
-            if value.get("sequence") != expected_sequence:
-                raise DiagnosticBundleIntegrityError(
-                    f"record {line_number} has non-contiguous sequence"
-                )
-            record_type = value.get("recordType")
-            if not isinstance(record_type, str) or not record_type.strip():
-                raise DiagnosticBundleIntegrityError(
-                    f"record {line_number} has invalid recordType"
-                )
-            if not isinstance(value.get("payload"), dict):
-                raise DiagnosticBundleIntegrityError(f"record {line_number} has invalid payload")
-            records.append(value)
-            expected_sequence += 1
+        total_bytes = 0
+        total_records = 0
+        seen_paths: set[str] = set()
 
-        if len(records) != expected_records:
-            raise DiagnosticBundleIntegrityError(
-                f"segment record count mismatch: expected {expected_records}, got {len(records)}"
-            )
-        if manifest.get("bytes") != expected_bytes or manifest.get("records") != expected_records:
+        for segment_number, entry in enumerate(files, start=1):
+            if not isinstance(entry, dict):
+                raise DiagnosticBundleIntegrityError("manifest file entry must be an object")
+
+            relative_path = entry.get("path")
+            if not isinstance(relative_path, str) or not relative_path:
+                raise DiagnosticBundleIntegrityError("manifest file path must be a non-empty string")
+            if relative_path in seen_paths:
+                raise DiagnosticBundleIntegrityError("manifest contains a duplicate segment path")
+            seen_paths.add(relative_path)
+            segment_path = self._safe_child(relative_path)
+
+            expected_bytes = self._nonnegative_int(entry.get("bytes"), "file bytes")
+            expected_records = self._nonnegative_int(entry.get("records"), "file records")
+            expected_sha = entry.get("sha256")
+            if (
+                not isinstance(expected_sha, str)
+                or len(expected_sha) != 64
+                or any(character not in "0123456789abcdef" for character in expected_sha)
+            ):
+                raise DiagnosticBundleIntegrityError("final manifest requires a SHA-256 digest")
+
+            raw = segment_path.read_bytes()
+            if len(raw) != expected_bytes:
+                raise DiagnosticBundleIntegrityError(
+                    f"segment byte count mismatch: expected {expected_bytes}, got {len(raw)}"
+                )
+            if hashlib.sha256(raw).hexdigest() != expected_sha:
+                raise DiagnosticBundleIntegrityError("segment SHA-256 mismatch")
+            if raw and not raw.endswith(b"\n"):
+                raise DiagnosticBundleIntegrityError("segment ends with an incomplete JSONL record")
+
+            segment_records = 0
+            for line_number, line in enumerate(raw.splitlines(), start=1):
+                try:
+                    value = json.loads(line)
+                except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                    raise DiagnosticBundleIntegrityError(
+                        f"invalid JSONL record in segment {segment_number} at line {line_number}"
+                    ) from exc
+                if not isinstance(value, dict):
+                    raise DiagnosticBundleIntegrityError(
+                        f"record {line_number} in segment {segment_number} must be an object"
+                    )
+                if value.get("schemaVersion") != self.RECORD_SCHEMA_VERSION:
+                    raise DiagnosticBundleIntegrityError(
+                        f"record {line_number} in segment {segment_number} has unsupported schemaVersion"
+                    )
+                if value.get("sequence") != expected_sequence:
+                    raise DiagnosticBundleIntegrityError(
+                        f"record {line_number} in segment {segment_number} has non-contiguous sequence"
+                    )
+                record_type = value.get("recordType")
+                if not isinstance(record_type, str) or not record_type.strip():
+                    raise DiagnosticBundleIntegrityError(
+                        f"record {line_number} in segment {segment_number} has invalid recordType"
+                    )
+                if not isinstance(value.get("payload"), dict):
+                    raise DiagnosticBundleIntegrityError(
+                        f"record {line_number} in segment {segment_number} has invalid payload"
+                    )
+                records.append(value)
+                segment_records += 1
+                expected_sequence += 1
+
+            if segment_records != expected_records:
+                raise DiagnosticBundleIntegrityError(
+                    f"segment record count mismatch: expected {expected_records}, got {segment_records}"
+                )
+            total_bytes += expected_bytes
+            total_records += expected_records
+
+        if manifest.get("bytes") != total_bytes or manifest.get("records") != total_records:
             raise DiagnosticBundleIntegrityError("manifest totals do not match segment metadata")
         return records
 
