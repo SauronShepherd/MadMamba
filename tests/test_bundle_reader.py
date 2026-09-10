@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 import unittest
@@ -22,6 +23,28 @@ class DiagnosticBundleReaderTests(unittest.TestCase):
                 ["runtime-start", "runtime-stop"],
                 [record["recordType"] for record in records],
             )
+
+    def test_reads_rotated_segments_as_one_contiguous_stream(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with DiagnosticBundleWriter(
+                directory,
+                max_record_bytes=256,
+                max_segment_bytes=256,
+            ) as writer:
+                for index in range(8):
+                    writer.write("sample", {"index": index, "value": "x" * 80})
+
+            root = Path(directory)
+            manifest = json.loads((root / "madmamba-manifest.json").read_text(encoding="utf-8"))
+            self.assertGreater(len(manifest["files"]), 1)
+            records = DiagnosticBundleReader(directory).read_records()
+            self.assertEqual(list(range(1, 9)), [record["sequence"] for record in records])
+            self.assertEqual(list(range(8)), [record["payload"]["index"] for record in records])
+
+            second_segment = root / manifest["files"][1]["path"]
+            second_segment.write_bytes(second_segment.read_bytes().replace(b'"index":1', b'"index":9'))
+            with self.assertRaisesRegex(DiagnosticBundleIntegrityError, "SHA-256 mismatch"):
+                DiagnosticBundleReader(directory).read_records()
 
     def test_rejects_open_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -60,8 +83,6 @@ class DiagnosticBundleReaderTests(unittest.TestCase):
 
             manifest_path = root / "madmamba-manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            import hashlib
-
             manifest["bytes"] = len(raw)
             manifest["files"][0]["bytes"] = len(raw)
             manifest["files"][0]["sha256"] = hashlib.sha256(raw).hexdigest()
