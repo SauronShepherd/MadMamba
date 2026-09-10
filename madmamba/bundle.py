@@ -6,7 +6,7 @@ import os
 import threading
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from .sanitizer import sanitize_diagnostic_payload
 
@@ -20,40 +20,50 @@ class DiagnosticRecordTooLargeError(ValueError):
 
 
 class DiagnosticBundleWriter:
-    """Write a bounded, checksummed diagnostic JSONL bundle.
-
-    Every payload crosses the package privacy boundary before serialization.
-    Application locals, frames and arguments are rejected; secret-looking fields
-    and credential forms are redacted recursively. The writer owns one append-only
-    segment and a small manifest. Record writes are serialized so sequence
-    assignment and byte accounting remain correct under free-threaded interpreters.
-    """
+    """Write a bounded, checksummed, multi-segment diagnostic JSONL bundle."""
 
     MANIFEST_NAME = "madmamba-manifest.json"
     SEGMENT_NAME = "events.jsonl"
     DEFAULT_MAX_RECORD_BYTES = 1_048_576
+    DEFAULT_MAX_SEGMENT_BYTES = 10 * 1024 * 1024
 
     def __init__(
         self,
         directory: str | os.PathLike[str],
         *,
         max_record_bytes: int = DEFAULT_MAX_RECORD_BYTES,
+        max_segment_bytes: int = DEFAULT_MAX_SEGMENT_BYTES,
     ) -> None:
         if max_record_bytes < 1:
             raise ValueError("max_record_bytes must be positive")
+        if max_segment_bytes < max_record_bytes:
+            raise ValueError("max_segment_bytes must be at least max_record_bytes")
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.max_record_bytes = max_record_bytes
-        self.segment_path = self.directory / self.SEGMENT_NAME
+        self.max_segment_bytes = max_segment_bytes
         self.manifest_path = self.directory / self.MANIFEST_NAME
         self._lock = threading.Lock()
         self._sequence = 0
         self._bytes = 0
         self._records = 0
-        self._sha256 = hashlib.sha256()
         self._closed = False
-        self._segment = self.segment_path.open("xb")
+        self._segment_index = 1
+        self._segment_path = self.directory / self._segment_name(self._segment_index)
+        self._segment: BinaryIO = self._segment_path.open("xb")
+        self._segment_bytes = 0
+        self._segment_records = 0
+        self._segment_sha256 = hashlib.sha256()
+        self._completed_segments: list[dict[str, object]] = []
         self._write_manifest(state="OPEN")
+
+    @staticmethod
+    def _segment_name(index: int) -> str:
+        return DiagnosticBundleWriter.SEGMENT_NAME if index == 1 else f"events-{index:06d}.jsonl"
+
+    @property
+    def segment_path(self) -> Path:
+        return self._segment_path
 
     def __enter__(self) -> DiagnosticBundleWriter:
         return self
@@ -72,8 +82,6 @@ class DiagnosticBundleWriter:
             return self._bytes
 
     def write(self, record_type: str, payload: Mapping[str, Any]) -> int:
-        """Append one sanitized typed record and return its monotonically increasing sequence."""
-
         normalized_type = record_type.strip()
         if not normalized_type:
             raise ValueError("record_type must not be empty")
@@ -100,16 +108,19 @@ class DiagnosticBundleWriter:
             )
             if len(encoded) > self.max_record_bytes:
                 raise DiagnosticRecordTooLargeError(
-                    f"encoded diagnostic record is {len(encoded)} bytes; "
-                    f"limit is {self.max_record_bytes}"
+                    f"encoded diagnostic record is {len(encoded)} bytes; limit is {self.max_record_bytes}"
                 )
+            if self._segment_records and self._segment_bytes + len(encoded) > self.max_segment_bytes:
+                self._rotate_segment()
             try:
                 self._segment.write(encoded)
                 self._segment.flush()
             except OSError:
                 self._poison_after_write_error()
                 raise
-            self._sha256.update(encoded)
+            self._segment_sha256.update(encoded)
+            self._segment_records += 1
+            self._segment_bytes += len(encoded)
             self._sequence = sequence
             self._records += 1
             self._bytes += len(encoded)
@@ -120,9 +131,20 @@ class DiagnosticBundleWriter:
                 raise
             return sequence
 
-    def close(self) -> None:
-        """Durably close the segment and atomically publish a FINAL manifest."""
+    def _rotate_segment(self) -> None:
+        self._segment.flush()
+        os.fsync(self._segment.fileno())
+        self._segment.close()
+        self._completed_segments.append(self._current_segment_entry(finalized=True))
+        self._segment_index += 1
+        self._segment_path = self.directory / self._segment_name(self._segment_index)
+        self._segment = self._segment_path.open("xb")
+        self._segment_bytes = 0
+        self._segment_records = 0
+        self._segment_sha256 = hashlib.sha256()
+        self._write_manifest(state="OPEN")
 
+    def close(self) -> None:
         with self._lock:
             if self._closed:
                 return
@@ -133,8 +155,6 @@ class DiagnosticBundleWriter:
             self._write_manifest(state="FINAL")
 
     def _poison_after_write_error(self) -> None:
-        """Best-effort publish FAILED state after an I/O error during a record write."""
-
         self._closed = True
         try:
             self._segment.close()
@@ -145,17 +165,24 @@ class DiagnosticBundleWriter:
         except OSError:
             pass
 
-    def _manifest(self, *, state: str) -> dict[str, object]:
-        file_entry: dict[str, object] = {
-            "bytes": self._bytes,
-            "path": self.SEGMENT_NAME,
-            "records": self._records,
+    def _current_segment_entry(self, *, finalized: bool) -> dict[str, object]:
+        entry: dict[str, object] = {
+            "bytes": self._segment_bytes,
+            "path": self._segment_name(self._segment_index),
+            "records": self._segment_records,
         }
-        if state == "FINAL":
-            file_entry["sha256"] = self._sha256.hexdigest()
+        if finalized:
+            entry["sha256"] = self._segment_sha256.hexdigest()
+        return entry
+
+    def _manifest(self, *, state: str) -> dict[str, object]:
+        files = [dict(entry) for entry in self._completed_segments]
+        current = self._current_segment_entry(finalized=state == "FINAL")
+        if current["records"] or not files:
+            files.append(current)
         return {
             "bytes": self._bytes,
-            "files": [file_entry],
+            "files": files,
             "format": "madmamba-diagnostic-bundle",
             "manifestVersion": 1,
             "records": self._records,
@@ -179,8 +206,6 @@ class DiagnosticBundleWriter:
         self._fsync_directory()
 
     def _fsync_directory(self) -> None:
-        """Persist the manifest directory entry after atomic replacement on POSIX."""
-
         if os.name == "nt":
             return
         descriptor = os.open(self.directory, os.O_RDONLY)
