@@ -15,7 +15,7 @@ _DENIED_KEYS = frozenset(
         "local",
         "locals",
         "return_value",
-        "returnValue",
+        "returnvalue",
     }
 )
 _SENSITIVE_KEY_PARTS = (
@@ -41,15 +41,25 @@ class DiagnosticPayloadRejectedError(ValueError):
     """Raised when a diagnostic payload requests explicitly forbidden data."""
 
 
+def _normalize_key(key: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", key.strip().lower()).strip("_")
+
+
 def _sensitive_key(key: str) -> bool:
-    normalized = key.strip().lower()
-    return any(part in normalized for part in _SENSITIVE_KEY_PARTS)
+    normalized = _normalize_key(key)
+    collapsed = normalized.replace("_", "")
+    return any(
+        part in normalized or part.replace("_", "") in collapsed for part in _SENSITIVE_KEY_PARTS
+    )
 
 
 def _redact_text(value: str) -> str:
     redacted = value
     for pattern in _SECRET_PATTERNS:
-        redacted = pattern.sub(lambda match: (match.group(1) if match.lastindex else "") + _REDACTED, redacted)
+        redacted = pattern.sub(
+            lambda match: (match.group(1) if match.lastindex else "") + _REDACTED,
+            redacted,
+        )
     return redacted
 
 
@@ -65,7 +75,8 @@ def sanitize_diagnostic_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     def sanitize(value: Any, *, key: str = "", depth: int = 0) -> Any:
         if depth > 12:
             return "<depth-limit>"
-        if key in _DENIED_KEYS:
+        normalized_key = _normalize_key(key)
+        if normalized_key in _DENIED_KEYS:
             raise DiagnosticPayloadRejectedError(f"diagnostic field {key!r} is forbidden")
         if _sensitive_key(key):
             return _REDACTED
