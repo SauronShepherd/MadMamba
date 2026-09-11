@@ -37,6 +37,8 @@ jobs:
         run: mypy madmamba tools
 
       - name: Measure package coverage
+        env:
+          COVERAGE_FILE: ${{ runner.temp }}/madmamba.coverage
         run: |
           coverage run -m unittest discover -s tests -p "test_*.py" -q
           coverage report
