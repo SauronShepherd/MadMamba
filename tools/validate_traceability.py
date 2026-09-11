@@ -15,6 +15,10 @@ TASK_ID = re.compile(r"^R[0-9]+-[A-Z0-9]+-[0-9]{3}$")
 REF_PREFIXES = ("planned:", "spec:")
 REQUIRED_LINK_FIELDS = ("implementation", "tests", "documentation")
 REQUIREMENT_STATUSES = {"planned", "partial", "implemented"}
+# Build Plan v2 M3.4: the current catalogue contains 26 planned evidence
+# references. Future work may burn this number down, but may not silently grow
+# roadmap-only evidence without an explicit baseline review.
+PLANNED_REFERENCE_BASELINE = 26
 
 
 class TraceabilityError(ValueError):
@@ -162,6 +166,16 @@ def _validate_evidence_status(requirement: dict[str, Any], label: str) -> None:
                 raise TraceabilityError(f"{label}.{field} cannot contain planned evidence for implemented status")
 
 
+def _planned_reference_count(requirements: list[dict[str, Any]]) -> int:
+    return sum(
+        1
+        for requirement in requirements
+        for field in REQUIRED_LINK_FIELDS
+        for ref in requirement[field]
+        if isinstance(ref, str) and ref.startswith("planned:")
+    )
+
+
 def validate_catalogue(data: Any, repo_root: Path, schema: Any | None = None) -> None:
     if schema is not None:
         _validate_schema(data, schema)
@@ -206,6 +220,13 @@ def validate_catalogue(data: Any, repo_root: Path, schema: Any | None = None) ->
             for ref_index, ref in enumerate(refs):
                 _validate_reference(repo_root, ref, f"{label}.{field}[{ref_index}]")
         _validate_evidence_status(requirement, label)
+
+    planned_references = _planned_reference_count(requirements)
+    if planned_references > PLANNED_REFERENCE_BASELINE:
+        raise TraceabilityError(
+            "planned evidence reference count grew from the ratchet baseline "
+            f"{PLANNED_REFERENCE_BASELINE} to {planned_references}"
+        )
 
     task_ids: set[str] = set()
     r1_tasks = 0
