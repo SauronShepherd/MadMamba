@@ -35,4 +35,6 @@ target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+# Start with correctness-bearing families. M3.4 will ratchet style/modernization
+# families without laundering the existing style debt into this gate rollout.
+select = ["E9", "F"]
