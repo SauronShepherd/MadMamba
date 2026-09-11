@@ -14,6 +14,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = [
+    "coverage>=7,<8",
     "mypy>=1.15,<2",
     "ruff>=0.12,<1",
 ]
@@ -38,3 +39,10 @@ line-length = 100
 # Start with correctness-bearing families. M3.4 will ratchet style/modernization
 # families without laundering the existing style debt into this gate rollout.
 select = ["E9", "F"]
+
+[tool.coverage.run]
+branch = true
+source = ["madmamba"]
+
+[tool.coverage.report]
+show_missing = true
