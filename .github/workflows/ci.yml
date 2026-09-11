@@ -36,6 +36,11 @@ jobs:
       - name: Mypy
         run: mypy madmamba tools
 
+      - name: Measure package coverage
+        run: |
+          coverage run -m unittest discover -s tests -p "test_*.py" -q
+          coverage report
+
   r0-gates:
     name: R0 gates (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
