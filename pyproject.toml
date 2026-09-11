@@ -12,8 +12,29 @@ license = { text = "Proprietary" }
 authors = [{ name = "MadMamba contributors" }]
 dependencies = []
 
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.15,<2",
+    "ruff>=0.12,<1",
+]
+
 [project.scripts]
 madmamba = "madmamba.cli:main"
 
 [tool.setuptools]
 packages = ["madmamba"]
+
+[tool.mypy]
+python_version = "3.12"
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+# Start with correctness-bearing families. M3.4 will ratchet style/modernization
+# families without laundering the existing style debt into this gate rollout.
+select = ["E9", "F"]

@@ -14,6 +14,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  static-quality:
+    name: Static quality (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+
+      - name: Install static quality tools
+        run: python -m pip install -e '.[dev]'
+
+      - name: Ruff
+        run: ruff check madmamba tools tests
+
+      - name: Mypy
+        run: mypy madmamba tools
+
   r0-gates:
     name: R0 gates (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
