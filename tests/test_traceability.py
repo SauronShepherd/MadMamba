@@ -79,6 +79,15 @@ class TraceabilityValidationTests(unittest.TestCase):
         self.assertTrue(all(ref.startswith("planned:") for ref in planned["implementation"]))
         self.validate(self.catalogue)
 
+    def test_R0_ADR_001_planned_evidence_count_is_ratchet(self) -> None:
+        current = validator._planned_reference_count(self.catalogue["requirements"])
+        self.assertEqual(validator.PLANNED_REFERENCE_BASELINE, current)
+        broken = copy.deepcopy(self.catalogue)
+        planned = next(req for req in broken["requirements"] if req["status"] == "planned")
+        planned["documentation"].append("planned:new-roadmap-only-evidence")
+        with self.assertRaisesRegex(validator.TraceabilityError, "planned evidence reference count grew"):
+            self.validate(broken)
+
     def test_R0_ADR_001_rejects_unknown_requirement_mapping(self) -> None:
         broken = copy.deepcopy(self.catalogue)
         broken["tasks"][0]["requirements"] = ["FR-FAKE-999"]
