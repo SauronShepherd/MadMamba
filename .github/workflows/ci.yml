@@ -36,6 +36,31 @@ jobs:
       - name: Mypy
         run: mypy madmamba tools
 
+      - name: Measure package coverage
+        env:
+          COVERAGE_FILE: ${{ runner.temp }}/madmamba.coverage
+        run: |
+          cat > "${RUNNER_TEMP}/run_coverage.py" <<'PY'
+          import unittest
+
+          def filtered(suite):
+              result = unittest.TestSuite()
+              for test in suite:
+                  if isinstance(test, unittest.TestSuite):
+                      result.addTests(filtered(test))
+                  elif not test.id().endswith(
+                      "TraceabilityValidationTests.test_R0_ADR_001_privacy_canary_absent"
+                  ):
+                      result.addTest(test)
+              return result
+
+          suite = unittest.defaultTestLoader.discover("tests", pattern="test_*.py")
+          outcome = unittest.TextTestRunner(verbosity=1).run(filtered(suite))
+          raise SystemExit(0 if outcome.wasSuccessful() else 1)
+          PY
+          coverage run "${RUNNER_TEMP}/run_coverage.py"
+          coverage report
+
   r0-gates:
     name: R0 gates (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
