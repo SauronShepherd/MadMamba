@@ -57,11 +57,18 @@ class DiagnosticBundleInterruptionTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
                 text=True,
             )
+            marker_text = ""
             try:
                 deadline = time.monotonic() + 10.0
-                while not marker.exists() and process.poll() is None and time.monotonic() < deadline:
+                while process.poll() is None and time.monotonic() < deadline:
+                    try:
+                        marker_text = marker.read_text(encoding="ascii")
+                    except FileNotFoundError:
+                        marker_text = ""
+                    if marker_text.strip():
+                        break
                     time.sleep(0.01)
-                if not marker.exists():
+                if not marker_text.strip():
                     stdout, stderr = process.communicate(timeout=1)
                     self.fail(
                         "interruption fixture did not reach the partial-write boundary; "
@@ -79,7 +86,7 @@ class DiagnosticBundleInterruptionTests(unittest.TestCase):
 
             self.assertEqual([record["sequence"] for record in recovered.records], [1])
             self.assertGreater(recovered.discarded_tail_bytes, 0)
-            self.assertGreater(int(marker.read_text(encoding="ascii")), 0)
+            self.assertGreater(int(marker_text), 0)
 
 
 if __name__ == "__main__":
