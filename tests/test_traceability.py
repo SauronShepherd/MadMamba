@@ -79,14 +79,38 @@ class TraceabilityValidationTests(unittest.TestCase):
         self.assertTrue(all(ref.startswith("planned:") for ref in planned["implementation"]))
         self.validate(self.catalogue)
 
-    def test_R0_ADR_001_planned_evidence_count_is_ratchet(self) -> None:
+    def test_R0_ADR_001_planned_evidence_count_matches_ratchet_baseline(self) -> None:
         current = validator._planned_reference_count(self.catalogue["requirements"])
         self.assertEqual(validator.PLANNED_REFERENCE_BASELINE, current)
+
+    def test_R0_ADR_001_planned_evidence_ratchet_rejects_growth(self) -> None:
+        current = validator._planned_reference_count(self.catalogue["requirements"])
         broken = copy.deepcopy(self.catalogue)
         planned = next(req for req in broken["requirements"] if req["status"] == "planned")
         planned["documentation"].append("planned:new-roadmap-only-evidence")
-        with self.assertRaisesRegex(validator.TraceabilityError, "planned evidence reference count grew"):
+        with self.assertRaisesRegex(
+            validator.TraceabilityError,
+            rf"planned evidence reference count grew from the ratchet baseline {current} to {current + 1}",
+        ):
             self.validate(broken)
+
+    def test_R0_ADR_001_planned_evidence_ratchet_requires_baseline_after_reduction(self) -> None:
+        current = validator._planned_reference_count(self.catalogue["requirements"])
+        reduced = copy.deepcopy(self.catalogue)
+        planned = next(req for req in reduced["requirements"] if req["status"] == "planned")
+        for field in validator.REQUIRED_LINK_FIELDS:
+            refs = planned[field]
+            removable = next((ref for ref in refs if ref.startswith("planned:")), None)
+            if removable is not None and len(refs) > 1:
+                refs.remove(removable)
+                break
+        else:
+            self.fail("fixture must contain a removable planned reference")
+        with self.assertRaisesRegex(
+            validator.TraceabilityError,
+            rf"planned evidence ratchet baseline is stale: lower it from {current} to {current - 1}",
+        ):
+            self.validate(reduced)
 
     def test_R0_ADR_001_rejects_unknown_requirement_mapping(self) -> None:
         broken = copy.deepcopy(self.catalogue)
