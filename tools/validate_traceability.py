@@ -15,9 +15,8 @@ TASK_ID = re.compile(r"^R[0-9]+-[A-Z0-9]+-[0-9]{3}$")
 REF_PREFIXES = ("planned:", "spec:")
 REQUIRED_LINK_FIELDS = ("implementation", "tests", "documentation")
 REQUIREMENT_STATUSES = {"planned", "partial", "implemented"}
-# Build Plan v2 M3.4: the current catalogue contains 26 planned evidence
-# references. Future work may burn this number down, but may not silently grow
-# roadmap-only evidence without an explicit baseline review.
+# Build Plan v5 M3.5: every reduction in roadmap-only evidence must lower this
+# reviewed baseline in the same change so it cannot silently regress later.
 PLANNED_REFERENCE_BASELINE = 26
 
 
@@ -225,6 +224,11 @@ def validate_catalogue(data: Any, repo_root: Path, schema: Any | None = None) ->
     if planned_references > PLANNED_REFERENCE_BASELINE:
         raise TraceabilityError(
             "planned evidence reference count grew from the ratchet baseline "
+            f"{PLANNED_REFERENCE_BASELINE} to {planned_references}"
+        )
+    if planned_references < PLANNED_REFERENCE_BASELINE:
+        raise TraceabilityError(
+            "planned evidence ratchet baseline is stale: lower it from "
             f"{PLANNED_REFERENCE_BASELINE} to {planned_references}"
         )
 
