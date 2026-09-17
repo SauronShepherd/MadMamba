@@ -197,21 +197,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "bundle-inspect":
         if remainder:
             parser.error(f"unrecognized arguments: {' '.join(remainder)}")
-        bundle_payload, status = _bundle_payload_or_error(args.directory, recover_open=args.recover_open)
-        if bundle_payload is None:
+        inspected_payload, status = _bundle_payload_or_error(args.directory, recover_open=args.recover_open)
+        if inspected_payload is None:
             return status
-        print(json.dumps(bundle_payload, sort_keys=True, separators=(",", ":")))
+        print(json.dumps(inspected_payload, sort_keys=True, separators=(",", ":")))
         return 0
     if args.command == "report":
         if remainder:
             parser.error(f"unrecognized arguments: {' '.join(remainder)}")
-        bundle_payload, status = _bundle_payload_or_error(args.directory, recover_open=args.recover_open)
-        if bundle_payload is None:
+        report_payload, status = _bundle_payload_or_error(args.directory, recover_open=args.recover_open)
+        if report_payload is None:
             return status
         if args.as_json:
-            print(json.dumps(bundle_payload, sort_keys=True, separators=(",", ":")))
+            print(json.dumps(report_payload, sort_keys=True, separators=(",", ":")))
         else:
-            _print_report(bundle_payload)
+            _print_report(report_payload)
         return 0
     parser.error(f"unsupported command: {args.command}")
     return 2
