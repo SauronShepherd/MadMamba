@@ -82,6 +82,22 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Recover complete records from an interrupted OPEN bundle.",
     )
+    report = subcommands.add_parser(
+        "report",
+        help="Report a bounded diagnostic-bundle summary without exposing payload contents.",
+    )
+    report.add_argument("directory", help="Diagnostic bundle directory.")
+    report.add_argument(
+        "--json",
+        action="store_true",
+        dest="as_json",
+        help="Emit machine-readable JSON.",
+    )
+    report.add_argument(
+        "--recover-open",
+        action="store_true",
+        help="Recover complete records from an interrupted OPEN bundle.",
+    )
     return parser
 
 
@@ -118,6 +134,26 @@ def run_python_application(application: Sequence[str]) -> int:
         return 126
     except FileNotFoundError:
         return 127
+
+
+def _bundle_payload_or_error(directory: str, *, recover_open: bool) -> tuple[dict[str, object] | None, int]:
+    try:
+        return inspect_bundle(directory, recover_open=recover_open), 0
+    except DiagnosticBundleIntegrityError as exc:
+        print(f"madmamba: bundle integrity error: {exc}", file=sys.stderr)
+        return None, 2
+
+
+def _print_report(payload: dict[str, object]) -> None:
+    print(f"state: {payload['state']}")
+    print(f"records: {payload['records']}")
+    record_types = payload.get("recordTypes", {})
+    if isinstance(record_types, dict):
+        for record_type, count in sorted(record_types.items()):
+            print(f"{record_type}: {count}")
+    if payload.get("recovered"):
+        print("recovered: yes")
+        print(f"discarded tail bytes: {payload.get('discardedTailBytes', 0)}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -161,12 +197,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "bundle-inspect":
         if remainder:
             parser.error(f"unrecognized arguments: {' '.join(remainder)}")
-        try:
-            payload = inspect_bundle(args.directory, recover_open=args.recover_open)
-        except DiagnosticBundleIntegrityError as exc:
-            print(f"madmamba: bundle integrity error: {exc}", file=sys.stderr)
-            return 2
+        payload, status = _bundle_payload_or_error(args.directory, recover_open=args.recover_open)
+        if payload is None:
+            return status
         print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        return 0
+    if args.command == "report":
+        if remainder:
+            parser.error(f"unrecognized arguments: {' '.join(remainder)}")
+        payload, status = _bundle_payload_or_error(args.directory, recover_open=args.recover_open)
+        if payload is None:
+            return status
+        if args.as_json:
+            print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+        else:
+            _print_report(payload)
         return 0
     parser.error(f"unsupported command: {args.command}")
     return 2
