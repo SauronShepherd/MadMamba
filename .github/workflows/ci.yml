@@ -115,6 +115,9 @@ jobs:
       - name: Validate traceability
         run: python tools/validate_traceability.py
 
+      - name: Validate privacy model
+        run: python tools/validate_privacy_model.py
+
       - name: Lint architecture decisions
         run: python tools/lint_adrs.py
 
@@ -129,4 +132,6 @@ jobs:
           python -c "import json, pathlib;
           [json.loads(pathlib.Path(p).read_text(encoding='utf-8'))
           for p in ('requirements/traceability.json',
-          'requirements/traceability.schema.json')]"
+          'requirements/traceability.schema.json',
+          'privacy/data-class-inventory.json',
+          'privacy/data-class-inventory.schema.json')]"

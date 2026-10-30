@@ -1,0 +1,423 @@
+{
+  "dataClasses": [
+    {
+      "category": "allowed",
+      "description": "Structural counts, booleans, bounded enums, and schema/control metadata.",
+      "id": "safe.structural"
+    },
+    {
+      "category": "allowed",
+      "description": "Bounded numeric sizes, durations, rows, batches, allocations, and counters.",
+      "id": "safe.numeric-measurement"
+    },
+    {
+      "category": "allowed",
+      "description": "Runtime, dependency, schema, capability, and completeness metadata.",
+      "id": "safe.version-capability"
+    },
+    {
+      "category": "sensitive",
+      "description": "Module/function/type identity; bounded classification or policy-controlled identity only.",
+      "id": "sensitive.code-identity"
+    },
+    {
+      "category": "sensitive",
+      "description": "Project-relative or keyed-HMAC path identity; raw paths are not retained.",
+      "id": "sensitive.path-identity"
+    },
+    {
+      "category": "sensitive",
+      "description": "Code/schema/checksum fingerprints that may support linkage and require bounded policy.",
+      "id": "sensitive.fingerprint"
+    },
+    {
+      "category": "sensitive",
+      "description": "Run/process/interpreter/snapshot/component identifiers kept out of metric dimensions unless policy permits.",
+      "id": "sensitive.run-identity"
+    },
+    {
+      "category": "sensitive",
+      "description": "Explicitly allow-listed low-cardinality tag values.",
+      "id": "sensitive.low-cardinality-tag"
+    },
+    {
+      "canaryStrategy": {
+        "assertion": "A synthetic marker for this class must be absent from every listed sink after the privacy boundary.",
+        "fixtureId": "canary-arguments-returns",
+        "sinks": [
+          "logs",
+          "reports",
+          "caches",
+          "temp-files",
+          "bundles",
+          "viewer-exports"
+        ]
+      },
+      "category": "prohibited",
+      "description": "Arguments and return values are prohibited by default.",
+      "id": "prohibited.arguments-returns"
+    },
+    {
+      "canaryStrategy": {
+        "assertion": "A synthetic marker for this class must be absent from every listed sink after the privacy boundary.",
+        "fixtureId": "canary-object-payloads",
+        "sinks": [
+          "logs",
+          "reports",
+          "caches",
+          "temp-files",
+          "bundles",
+          "viewer-exports"
+        ]
+      },
+      "category": "prohibited",
+      "description": "Object contents, arbitrary repr, serialized payloads, Arrow/pandas/NumPy values are prohibited.",
+      "id": "prohibited.object-payloads"
+    },
+    {
+      "canaryStrategy": {
+        "assertion": "A synthetic marker for this class must be absent from every listed sink after the privacy boundary.",
+        "fixtureId": "canary-sql-paths",
+        "sinks": [
+          "logs",
+          "reports",
+          "caches",
+          "temp-files",
+          "bundles",
+          "viewer-exports"
+        ]
+      },
+      "category": "prohibited",
+      "description": "SQL text, plan expressions, literals, identifiers, and raw paths are prohibited.",
+      "id": "prohibited.sql-paths"
+    },
+    {
+      "canaryStrategy": {
+        "assertion": "A synthetic marker for this class must be absent from every listed sink after the privacy boundary.",
+        "fixtureId": "canary-py4j-bodies",
+        "sinks": [
+          "logs",
+          "reports",
+          "caches",
+          "temp-files",
+          "bundles",
+          "viewer-exports"
+        ]
+      },
+      "category": "prohibited",
+      "description": "Py4J command bodies are prohibited.",
+      "id": "prohibited.py4j-bodies"
+    },
+    {
+      "canaryStrategy": {
+        "assertion": "A synthetic marker for this class must be absent from every listed sink after the privacy boundary.",
+        "fixtureId": "canary-protobuf-bodies",
+        "sinks": [
+          "logs",
+          "reports",
+          "caches",
+          "temp-files",
+          "bundles",
+          "viewer-exports"
+        ]
+      },
+      "category": "prohibited",
+      "description": "Protobuf bodies are prohibited.",
+      "id": "prohibited.protobuf-bodies"
+    },
+    {
+      "canaryStrategy": {
+        "assertion": "A synthetic marker for this class must be absent from every listed sink after the privacy boundary.",
+        "fixtureId": "canary-exception-context",
+        "sinks": [
+          "logs",
+          "reports",
+          "caches",
+          "temp-files",
+          "bundles",
+          "viewer-exports"
+        ]
+      },
+      "category": "prohibited",
+      "description": "Exception messages, locals, tracebacks, and source snippets are prohibited.",
+      "id": "prohibited.exception-context"
+    },
+    {
+      "canaryStrategy": {
+        "assertion": "A synthetic marker for this class must be absent from every listed sink after the privacy boundary.",
+        "fixtureId": "canary-environment-values",
+        "sinks": [
+          "logs",
+          "reports",
+          "caches",
+          "temp-files",
+          "bundles",
+          "viewer-exports"
+        ]
+      },
+      "category": "prohibited",
+      "description": "Environment values are prohibited except allow-listed non-secrets.",
+      "id": "prohibited.environment-values"
+    },
+    {
+      "canaryStrategy": {
+        "assertion": "A synthetic marker for this class must be absent from every listed sink after the privacy boundary.",
+        "fixtureId": "canary-credentials-headers",
+        "sinks": [
+          "logs",
+          "reports",
+          "caches",
+          "temp-files",
+          "bundles",
+          "viewer-exports"
+        ]
+      },
+      "category": "prohibited",
+      "description": "Credentials, tokens, connection strings, cookies, and headers are prohibited.",
+      "id": "prohibited.credentials-headers"
+    },
+    {
+      "canaryStrategy": {
+        "assertion": "A synthetic marker for this class must be absent from every listed sink after the privacy boundary.",
+        "fixtureId": "canary-worker-logs",
+        "sinks": [
+          "logs",
+          "reports",
+          "caches",
+          "temp-files",
+          "bundles",
+          "viewer-exports"
+        ]
+      },
+      "category": "prohibited",
+      "description": "Python worker log messages are prohibited.",
+      "id": "prohibited.worker-logs"
+    },
+    {
+      "canaryStrategy": {
+        "assertion": "A synthetic marker for this class must be absent from every listed sink after the privacy boundary.",
+        "fixtureId": "canary-raw-identifiers",
+        "sinks": [
+          "logs",
+          "reports",
+          "caches",
+          "temp-files",
+          "bundles",
+          "viewer-exports"
+        ]
+      },
+      "category": "prohibited",
+      "description": "Raw user/request/query IDs and UUIDs are prohibited as dimensions.",
+      "id": "prohibited.raw-identifiers"
+    }
+  ],
+  "fieldGroups": {
+    "config": {
+      "safe.numeric-measurement": [
+        "adapters.spark.classic.wireBytes",
+        "attach.ackTimeoutSeconds",
+        "budget.evaluationIntervalSeconds",
+        "budget.hardOverheadPercent",
+        "budget.maxResidentBytes",
+        "budget.targetOverheadPercent",
+        "flightRecorder.maxAgeSeconds",
+        "flightRecorder.maxEvents",
+        "metrics.maxMetricKeys",
+        "metrics.maxStackFingerprints",
+        "metrics.maxStringBytes",
+        "metrics.maxTagSets",
+        "metrics.maxTargets",
+        "metrics.maxTypes",
+        "metrics.shards",
+        "output.maxFiles",
+        "output.queueCapacity",
+        "output.rotateBytes",
+        "output.shutdownTimeoutSeconds",
+        "output.snapshotIntervalSeconds",
+        "probes.nativeCalls.maxEventsPerSecond",
+        "runtime.panicFuse.maxErrorsPerComponent",
+        "selection.dynamicDiscovery.maxEventsPerSecond",
+        "selection.dynamicDiscovery.maxNewCodes"
+      ],
+      "safe.structural": [
+        "adapters.arrow.cDataInterface",
+        "adapters.arrow.conversions",
+        "adapters.arrow.device",
+        "adapters.arrow.enabled",
+        "adapters.arrow.ipc",
+        "adapters.arrow.memoryPool",
+        "adapters.arrow.objects",
+        "adapters.plugins.allow",
+        "adapters.plugins.enabled",
+        "adapters.serialization.enabled",
+        "adapters.spark.builtInProfilerPolicy",
+        "adapters.spark.classic.py4j",
+        "adapters.spark.classic.semantic",
+        "adapters.spark.connect.grpc",
+        "adapters.spark.connect.planShape",
+        "adapters.spark.connect.semantic",
+        "adapters.spark.enabled",
+        "adapters.spark.madlava.enabled",
+        "adapters.spark.madlava.onUnavailable",
+        "adapters.spark.mode",
+        "adapters.spark.workers.bootstrap",
+        "adapters.spark.workers.enabled",
+        "adapters.spark.workers.taskContext",
+        "attach.enabled",
+        "attach.safeRemoteExecOnly",
+        "budget.allowUpshift",
+        "budget.mode",
+        "enabled",
+        "evidence.importers.os",
+        "evidence.importers.pysparkProfiles",
+        "evidence.importers.sparkEventLog",
+        "evidence.importers.sparkMetrics",
+        "evidence.importers.sparkRest",
+        "evidence.importers.tachyon",
+        "flightRecorder.enabled",
+        "flightRecorder.triggers.latencyNs",
+        "flightRecorder.triggers.sparkTaskFailure",
+        "flightRecorder.triggers.unhandledException",
+        "metrics.overflowPolicy",
+        "output.bundle",
+        "output.fsync",
+        "output.permissions",
+        "output.queueOverflowPolicy",
+        "preset",
+        "privacy.captureArguments",
+        "privacy.captureExceptionMessages",
+        "privacy.capturePayloads",
+        "privacy.captureReturnValues",
+        "privacy.captureSqlText",
+        "privacy.captureWorkerLogMessages",
+        "privacy.mode",
+        "privacy.pathIdentity",
+        "privacy.stableCrossRunIdentity",
+        "probes.exceptions.enabled",
+        "probes.exceptions.handled",
+        "probes.exceptions.messages",
+        "probes.exceptions.raised",
+        "probes.exceptions.reraised",
+        "probes.exceptions.stackFingerprint",
+        "probes.exceptions.unhandled",
+        "probes.exceptions.unraisable",
+        "probes.exceptions.unwind",
+        "probes.methods.activeThreadCpuDuration",
+        "probes.methods.activeWallDuration",
+        "probes.methods.enabled",
+        "probes.methods.histogram",
+        "probes.methods.suspendedInstanceTracking",
+        "probes.nativeCalls.enabled",
+        "run.role",
+        "runtime.backend",
+        "runtime.coexistencePolicy",
+        "runtime.fallbackBackend",
+        "runtime.freeThreaded",
+        "runtime.jitPolicy",
+        "runtime.subinterpreters",
+        "runtime.toolIdPolicy",
+        "schemaVersion",
+        "selection.dynamicDiscovery.enabled"
+      ],
+      "sensitive.code-identity": [
+        "probes.nativeCalls.include",
+        "selection.excludeFunctions",
+        "selection.excludeModules",
+        "selection.includeFunctions",
+        "selection.includeModules"
+      ],
+      "sensitive.low-cardinality-tag": [
+        "privacy.tagAllowList",
+        "run.staticTags.*"
+      ],
+      "sensitive.path-identity": [
+        "adapters.spark.madlava.agentPath",
+        "attach.temporaryDirectory",
+        "output.directory"
+      ],
+      "sensitive.run-identity": [
+        "run.id",
+        "run.name"
+      ]
+    },
+    "report": {
+      "prohibited.object-payloads": [
+        "record.payload.*"
+      ],
+      "safe.numeric-measurement": [
+        "currentManifest.bytes",
+        "currentManifest.files[].bytes",
+        "currentManifest.files[].records",
+        "currentManifest.records",
+        "metric.coverage.droppedEvents",
+        "metric.coverage.overflowKeys",
+        "metric.metrics[].values.buckets",
+        "metric.metrics[].values.count",
+        "metric.metrics[].values.max",
+        "metric.metrics[].values.sum",
+        "metric.sequence",
+        "metric.window.endMonotonicNs",
+        "metric.window.startMonotonicNs",
+        "record.sequence",
+        "report.discardedTailBytes",
+        "report.records"
+      ],
+      "safe.version-capability": [
+        "bundle.bundleFormat",
+        "bundle.components[].role",
+        "bundle.components[].runtime",
+        "bundle.createdAt",
+        "bundle.imports",
+        "bundle.incomplete",
+        "bundle.privacy.mode",
+        "bundle.privacy.stableLinkage",
+        "bundle.schemaSet",
+        "bundle.warnings",
+        "currentManifest.format",
+        "currentManifest.manifestVersion",
+        "currentManifest.state",
+        "metric.coverage.complete",
+        "metric.metrics[].descriptorId",
+        "metric.metrics[].dimensions.outcome",
+        "metric.recordType",
+        "metric.schemaVersion",
+        "metric.temporality",
+        "metric.window.wallEnd",
+        "record.recordType",
+        "record.schemaVersion",
+        "report.recordTypes.*",
+        "report.recovered",
+        "report.state"
+      ],
+      "sensitive.fingerprint": [
+        "bundle.components[].checksum",
+        "currentManifest.files[].sha256"
+      ],
+      "sensitive.path-identity": [
+        "bundle.components[].records",
+        "currentManifest.files[].path"
+      ],
+      "sensitive.run-identity": [
+        "bundle.bundleId",
+        "bundle.components[].componentInstanceId",
+        "bundle.components[].interpreterInstanceId",
+        "bundle.components[].processInstanceId",
+        "bundle.run.name",
+        "bundle.run.runId",
+        "metric.componentInstanceId",
+        "metric.interpreterInstanceId",
+        "metric.metrics[].dimensions.tagSetId",
+        "metric.metrics[].dimensions.targetId",
+        "metric.previousSnapshotId",
+        "metric.processInstanceId",
+        "metric.snapshotId"
+      ]
+    }
+  },
+  "requirements": [
+    "FR-CFG-008",
+    "SEC-012"
+  ],
+  "schemaVersion": "1.0.0",
+  "task": "R0-ADR-003"
+}
